@@ -14,9 +14,9 @@ WDC_Kyoto_Dst <- WDC_Kyoto_Dst_raw %>%
   ) 
 
 #Данные для исследования
-skim(data_raw)
+skim(brain_data_raw)
 
-data <- data_raw %>% 
+brain_data <- brain_data_raw %>% 
   transmute(
     Date = dmy(Дата), EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
     Sunspot_n = `Международное число солнечных пятен`, F10.7 = `Cкорректированный (F10.7)`, 
@@ -44,8 +44,8 @@ data <- data_raw %>%
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>% 
   left_join(WDC_Kyoto_Dst, by = join_by(Date))
   
-skim(data)
-data %>% head()
+skim(brain_data)
+brain_data %>% head()
   
 
   
