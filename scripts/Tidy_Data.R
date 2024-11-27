@@ -19,14 +19,15 @@ brain_data <- brain_data_raw %>%
     Pressure_8 = `Атмосферное давление на уровне станции в 8:00`, 
     Pressure_17 = `Атмосферное давление на уровне станции в 17:00`, 
     Pressure_mean = `Атмосферное давление в среднем за сутки, С (Т)`, 
-    Storm = factor (ifelse(is.na(`Медленная магнитная буря-1 Внезапная магнитная буря-2`),
-                           0, `Медленная магнитная буря-1 Внезапная магнитная буря-2`), 
-                    levels = c(0, 1, 2), labels = c("No_Storm", "Gradual_Storm", "Sudden_Storm")),
     
-    #Индексы геомагнитной активности берем из открытых источников
+    #Индексы геомагнитной активности и магнитных бурях берем из открытых источников
+    # Storm = factor (ifelse(is.na(`Медленная магнитная буря-1 Внезапная магнитная буря-2`),
+    #                        0, `Медленная магнитная буря-1 Внезапная магнитная буря-2`), 
+    #                 levels = c(0, 1, 2), labels = c("No_Storm", "Gradual_Storm", "Sudden_Storm")),
+    
     #Много пропусков: Количество умерших
-    #Разбивку по полу и возрастной группе рассмотрим позже:
     
+    #Разбивку по полу и возрастной группе рассмотрим позже:
     #EMS_male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`, 
     #EMS_male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`, 
     #EMS_male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`, 
@@ -38,8 +39,11 @@ brain_data <- brain_data_raw %>%
   mutate(across(starts_with("Pressure"), ~ if_else(. < 500, NA, .))) %>% 
   filter(!is.na(Date)) %>% 
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>% 
-  left_join(WDC_Kyoto_Dst, by = join_by(Date))
-  
+  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %>% 
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %>% 
+  mutate( across( starts_with("Sudden"), ~ factor( case_when(is.na(.) ~ "No",
+                                                             TRUE ~ "Yes") ) ) )  
+
 
 ##Локальное храненение данных 
 write_csv(brain_data, "data/raw/brain_data.csv") 
