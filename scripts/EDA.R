@@ -1,3 +1,9 @@
 #Eugene-van-Berd:Разведочный анализ данных
 
-str(brain_data)
+library(tidyverse)
+library(skimr)
+
+
+# Корреляция солнечной активности и геомагнитных индексов
+
+
