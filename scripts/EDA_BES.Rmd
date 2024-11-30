@@ -1,0 +1,280 @@
+---
+title: "Разведочный анализ данных"
+author: "Evgenii Berdinskikh"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(corrplot)
+library(corrr)
+library(forecast)
+library(ggpubr)
+library(ggbeeswarm)
+library(skimr)
+library(tidyverse)
+library(zoo)
+
+theme_custom <- theme_bw()+ theme(
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+
+```
+
+# Загрузка Tidy data для анализа
+
+```{r read}
+
+brain_data <- read_csv("../data/raw/brain_data.csv", show_col_types = FALSE) %>% 
+  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
+
+skim(brain_data)
+
+```
+
+# Корреляция количественных переменных
+
+```{r cor,  message=FALSE}
+
+cor_data <- brain_data %>% 
+  select( where(is.numeric) & !c(ends_with("min"), ends_with("max")) ) %>%
+  cor(use = "pairwise.complete.obs") 
+  
+corrplot(cor_data, method = 'number', type = 'lower', diag = FALSE)
+
+network_plot(cor_data, min_cor = .1)
+
+```
+
+
+```{r point, message=FALSE}
+
+brain_data %>% 
+  ggplot(aes(Sunspots, F10.7))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+brain_data %>% 
+  ggplot(aes(Dst_mean, Ap_mean))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+brain_data %>% 
+  drop_na() %>% 
+  ggplot(aes(Temp_mean, Pressure))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+```
+
+- Индекс **F10.7** и количество **солнечных пятен** показывают высокую корреляцию (r = 0.92), поскольку оба показателя отражают солнечную активность, но измеряются разными методами.  
+- Среднесуточные индексы **Ap** и **Dst** также заметно коррелируют (r = -0.70), так как оба характеризуют изменения в геомагнитном поле Земли под воздействием солнечного ветра.  
+- Также ожидаемо выявлена отрицательная корреляция между средней температурой и давлением за день (r = -0.73).  
+
+Для дальнейшего анализа из каждой пары переменных оставим одну:  
+1. **Количество солнечных пятен** — этот показатель имеет полный набор данных и обладает большей вариативностью.  
+2. **Индекс Dst** — напрямую связан с влиянием солнечной активности на магнитосферу.  
+3. **Температура** — обеспечивает полный охват данных за весь период исследования и обладает более высокой вариативностью.  
+
+
+# Циклы солнечной активности
+
+```{r cycle}
+
+brain_data %>% 
+  select(!c(Pressure, F10.7, Ap_mean)) %>% 
+  ggplot(aes(Date, Sunspots))+
+  geom_line(alpha = 0.3, colour = "royalblue2")+
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10),  se = FALSE,
+              colour = "orangered4", linewidth = 2) +
+  geom_vline(xintercept = as.Date("2009-01-01"), 
+             colour = "orangered", linewidth = 1, linetype = "dashed")+
+  geom_vline(xintercept = as.Date("2019-12-31"), 
+             colour = "orangered", linewidth = 1, linetype = "dashed")+
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")+
+  theme_bw()
+
+```
+
+Количество солнечных пятен тесно связано с циклами солнечной активности, что подтверждено на графике. Для дальнейшего анализа выбран период 2009-2019гг., который полностью охватывает 24-й цикл солнечной активности.
+
+# Декомпозиция данных
+
+```{r decompose}
+
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  autoplot() + theme_custom
+
+brain_data %>% 
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  ma(90) %>% autoplot() + theme_custom
+
+brain_data %>% 
+  mutate(Dst_var = Dst_max - Dst_min) %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  stl(s.window = "periodic") %>% autoplot() + 
+  theme_custom
+
+```
+
+Декомпозиция позволяет выявить тренды и сезонную цикличность:
+
+```{r check, fig.width=12, message=FALSE, warning=FALSE}
+
+##Линейный тренд EMS
+brain_data %>% 
+  # filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  ggplot(aes(Date, EMS))+
+  geom_line(alpha = 0.3, colour = "royalblue2")+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", size = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom + ggtitle("Линейный тренд вызова скорой")
+
+##Сезонные тренды по температуре, ветру, осадкам
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(Wind) %>% ts(start = 2009, frequency = 365) %>%
+  ma(183) %>%
+  autoplot() + theme_custom + ggtitle("Цикличность ветра",  subtitle = "Полугодовое скользящее среднее")
+
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(H2O) %>% ts(start = 2009, frequency = 365) %>%
+  ma(183) %>%
+  autoplot() + theme_custom + ggtitle("Цикличность осадков", subtitle = "Полугодовое скользящее среднее")
+
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  ggplot(aes(x = Date))+
+  geom_line(aes(y = Temp_mean %>% ma(30)), alpha = 0.3, colour = "black", size = 3)+
+  geom_line(aes(y = Temp_min %>% ma(30)), alpha = 0.3, colour = "royalblue2", size = 2)+
+  geom_line(aes(y = Temp_max %>% ma(30)), alpha = 0.3, colour = "orangered2", size = 2)+
+  scale_y_continuous(name = "Temp")+
+  theme_custom + ggtitle("Цикличность температуры", subtitle = "Месячное скользящее среднее")
+
+# Сложности с индексом Dst
+ggarrange(
+  
+  brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2021-12-31"))) %>%
+  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  ma(90) %>%
+  autoplot() + theme_custom + ggtitle("Солнечные пятна", subtitle = "Квартальное скользящее среднее"),
+  
+  brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2021-12-31"))) %>%
+  pull(Dst_var) %>% ts(start = 2009, frequency = 365) %>%
+  ma(365) %>%
+  autoplot() + theme_custom + ggtitle("Индекс Dst", subtitle = "Годовое скользящее среднее")
+
+  )
+
+
+
+```
+
+# Преобразование индекса Dst  
+
+```{r Dst}
+
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  ggplot()+
+  geom_boxplot(aes(Dst_var, factor(year(Date)),
+                   fill = factor(year(Date))), show.legend = FALSE)+
+  scale_fill_brewer(type = "div",  palette = 1)+
+  theme_custom + labs(y = "")
+
+Dst_breaks <- c(
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(Dst_var) %>% quantile(0.75), 
+ 
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  filter(Dst_var > quantile(Dst_var, 0.75, na.rm = TRUE)) %>%
+  mutate(Dst_group = ntile(Dst_var, 4)) %>%
+  group_by(Dst_group) %>%
+  summarise(max = max (Dst_var)) %>% pull(max) %>% head(3))
+
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  mutate(Dst_group = case_when(
+      Dst_var <= Dst_breaks[1] ~ 1,
+      Dst_var <= Dst_breaks[2] ~ 2,
+      Dst_var <= Dst_breaks[3] ~ 3,
+      Dst_var <= Dst_breaks[4] ~ 4,
+      TRUE ~ 5 ),
+      Dst_group = factor(Dst_group, levels = 1:5, ordered = TRUE) 
+  ) %>% 
+  ggplot()+
+  geom_histogram(aes(Dst_var, fill = Dst_group), binwidth = 1)+
+  geom_boxplot(aes(Dst_var, -5), outliers = FALSE, width = 10) +
+  scale_fill_brewer(type = "seq", palette = 7)+
+  coord_cartesian(ylim = c(-5, 50))+ labs(y = "")+
+  theme_custom
+
+brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  mutate(Dst_group = case_when(
+      Dst_var <= Dst_breaks[1] ~ 1,
+      Dst_var <= Dst_breaks[2] ~ 2,
+      Dst_var <= Dst_breaks[3] ~ 3,
+      Dst_var <= Dst_breaks[4] ~ 4,
+      TRUE ~ 5 ),
+      Dst_group = factor(Dst_group, levels = 1:5, ordered = TRUE) 
+  ) %>%  
+  ggplot(aes(Dst_group, Sunspots))+
+  geom_jitter(alpha = 0.5)+
+  geom_boxplot(alpha = 0.5, outliers = FALSE, fill = "goldenrod2", linewidth = 1)+
+  theme_custom
+
+```
+
+
+# Установление связи
+
+```{r cor2,  message=FALSE}
+
+cor_data2 <- brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  transmute(EMS, Wind, Temp_mean, H2O,
+            Dst_var = Dst_max - Dst_min, Sunspots ) %>%
+ cor(use = "pairwise.complete.obs") 
+  
+corrplot(cor_data2, method = 'number', type = 'lower', diag = FALSE)
+
+network_plot(cor_data2, min_cor = 0.1)
+
+```
+
+
+

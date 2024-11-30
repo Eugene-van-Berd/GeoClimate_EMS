@@ -26,7 +26,7 @@ brain_data <- brain_data_raw %>%
     #Данные о количестве умерших не используем из-за большого количества пропусков
     
     Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
-    Pressure_mean = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
+    Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
       ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE), 
     #Данные о температуре и осадках берем из открытых данных
   ) %>% 
@@ -36,7 +36,7 @@ brain_data <- brain_data_raw %>%
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
   left_join(WDC_Kyoto_Dst, by = join_by(Date)) %>%  #Данные о индексе Dst 
   left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
-  mutate( across( starts_with("Sudden"), ~ factor( case_when(is.na(.) ~ "No",
+  mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
                                                              TRUE ~ "Yes") ) ) )  
 
 
