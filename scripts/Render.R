@@ -9,8 +9,8 @@ render(
   output_file = "GeoClimate_EMS.html"
 )
 
-# Путь к Rmd файлу
-list.files()
+
+# Путь к нужному Rmd файлу (список файлов можно посмотреть тут - list.files() / list.files("scripts"))
 input_file <- "scripts/EDA_BES.Rmd"
 
 # Рендерим файл

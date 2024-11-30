@@ -16,13 +16,14 @@ WDC_Kyoto_Dst <- read_fwf("data/raw/WDC_Kyoto.dat",  #Индексы геома�
          fwf_widths( c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4) )) %>% 
   rowwise() %>%
   transmute(
-    Date = as.Date(paste0(X9,X2,"-",X3,"-",X5)), Dst_mean = X35, 
-    Dst_min = min(c_across(X11:X34), na.rm = TRUE),
-    Dst_max = max(c_across(X11:X34), na.rm = TRUE)
+    Date = as.Date(paste0(X9,X2,"-",X3,"-",X5)),
+    Dst_mean = X35, #Среднее значение Dst за сутки
+    Dst_min = min(c_across(X11:X34), na.rm = TRUE), #Минимальное значение Dst за сутки
+    Dst_max = max(c_across(X11:X34), na.rm = TRUE)  #Максимальное значение Dst за сутки
   )
 
 Obs_Ebre_SSC <- tibble()  #Данные о событиях SSC и SI из Observatori de l'Ebre (2006 - 2022 года)
-for (i in (2006:2022)) {
+for (i in (2006:2022)) {  #Sud_Imp - Внезапный импульс, Sud_Storm - Внезапное начало бури
   
   link <- paste0("data/raw/SC_data/ssc_", i, "_d.txt")
   
@@ -48,12 +49,12 @@ Roshydromet_Irkutsk <- read_fwf("data/raw/Roshydromet_Irkutsk.dat",  #Погод
   select(where(is.numeric)) %>% 
   transmute( 
     Date = as.Date(paste0(X3,"-",X5,"-",X7)), 
-    Temp_mean = X15, Temp_min = X11, Temp_max = X19, 
-    H2O = X23
+    Temp_mean = X15, Temp_min = X11, Temp_max = X19, #Температура за день (средняя, минимум, максиум)
+    H2O = X23 # Количество осадков за день
     ) 
 
 
-SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv",  #Международного числа солнечных пятен из SIDC, Brussels (1818 - 2024 года)
+SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv",  #Международное число солнечных пятен из SIDC, Brussels (1818 - 2024 года)
            delim = ";", col_names = FALSE)  %>% 
   transmute(Date = as.Date(paste0(X1,"-",X2,"-",X3)), 
             Sunspots = as.numeric(X5)
