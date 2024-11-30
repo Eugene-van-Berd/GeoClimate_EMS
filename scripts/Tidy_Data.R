@@ -1,32 +1,18 @@
 #Eugene-van-Berd: Преобразование исходных данных в tidy формат и подготовка для анализа.
 
 library(tidyverse)
+library(zoo)
 library(skimr)
 
 ##Оценка данных
 skim(brain_data_raw)
 skim(brain_data)
 
-
 ##Преобразование базы данных
 brain_data <- brain_data_raw %>% 
   transmute(
     Date = dmy(Дата), EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
-    Sunspot_n = `Международное число солнечных пятен`, F10.7 = `Cкорректированный (F10.7)`, 
-    Temp_min = `Минимальная температура`, Temp_max = `Максимальная температура`, 
-    Temp_mean = `Средняя температура`, Temp_var = Temp_max - Temp_min,
-    Wind = `Скорость ветра`, Precipitation = `Количество осадков`,
-    Pressure_8 = `Атмосферное давление на уровне станции в 8:00`, 
-    Pressure_17 = `Атмосферное давление на уровне станции в 17:00`, 
-    Pressure_mean = `Атмосферное давление в среднем за сутки, С (Т)`, 
-    Storm = factor (ifelse(is.na(`Медленная магнитная буря-1 Внезапная магнитная буря-2`),
-                           0, `Медленная магнитная буря-1 Внезапная магнитная буря-2`), 
-                    levels = c(0, 1, 2), labels = c("No_Storm", "Gradual_Storm", "Sudden_Storm")),
-    
-    #Индексы геомагнитной активности берем из открытых источников
-    #Много пропусков: Количество умерших
     #Разбивку по полу и возрастной группе рассмотрим позже:
-    
     #EMS_male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`, 
     #EMS_male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`, 
     #EMS_male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`, 
@@ -34,12 +20,26 @@ brain_data <- brain_data_raw %>%
     #EMS_female_2 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`, 
     #EMS_female_3 = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`, 
     
-  ) %>% 
-  mutate(across(starts_with("Pressure"), ~ if_else(. < 500, NA, .))) %>% 
-  filter(!is.na(Date)) %>% 
-  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>% 
-  left_join(WDC_Kyoto_Dst, by = join_by(Date))
+    #Пропуски в данных заменяем на среднее по соседним значениям:
+    F10.7 = `Cкорректированный (F10.7)` %>% na.approx(na.rm = FALSE), 
+    Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
+    Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
+      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE),
+    
+    #Число солнечных пятен, индексы геомагнитной активности, информация о магнитных бурях берем из открытых данных
+    #Данные о температуре и осадках берем из открытых данных
+    #Данные о количестве умерших не используем из-за большого количества пропусков
   
+  ) %>% 
+  filter(!is.na(Date)) %>%
+  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
+  left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
+  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
+  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %>%  #Данные о индексе Dst 
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
+  mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
+                                                             TRUE ~ "Yes") ) ) )  
+
 
 ##Локальное храненение данных 
 write_csv(brain_data, "data/raw/brain_data.csv") 
