@@ -116,24 +116,18 @@ brain_data %>%
 
 # Декомпозиция данных
 
-```{r decompose}
+```{r decompose, fig.height=8}
 
 brain_data %>%
-  mutate(Dst_var = Dst_max - Dst_min) %>%
-  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
-  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
   autoplot() + theme_custom
 
 brain_data %>% 
-  mutate(Dst_var = Dst_max - Dst_min) %>%
-  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
-  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
   ma(90) %>% autoplot() + theme_custom
 
 brain_data %>% 
-  mutate(Dst_var = Dst_max - Dst_min) %>% 
-  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
-  pull(EMS) %>% ts(start = 2009, frequency = 365) %>%
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
   stl(s.window = "periodic") %>% autoplot() + 
   theme_custom
 
@@ -222,10 +216,9 @@ network_plot(cor_data2, min_cor = 0.1)
 **Однако, данные по индексу Dst и количеству вызовов скорой помощи требуют дальнейшей проработки.**
 
 
-
 # Обновление данных
 
-```{r fig.height=8}
+```{r dst, fig.height=8}
 
 # Индекс Dst на каждый час
 WDC_Kyoto_Dst <- read_fwf("../data/raw/WDC_Kyoto.dat",  
@@ -233,7 +226,7 @@ WDC_Kyoto_Dst <- read_fwf("../data/raw/WDC_Kyoto.dat",
                           show_col_types = FALSE) %>% 
   transmute(
     Date = as.Date(paste0(X9,X2,"-",X3,"-",X5)),
-    across(X11:X34) %>%  set_names(paste0(seq(1, 24), "_h"))
+    across(X11:X34) %>%  set_names(paste0("H_", seq(1, 24) ))
     ) %>% 
   filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31")))
 
@@ -253,8 +246,7 @@ fviz_eig(Dst_pca, addlabels = T,
 # Обновление датасета
 brain_data2 <- brain_data %>% 
   filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
-  transmute(Date, Week = as.factor(week(Date)), Month = as.factor(month(Date)), 
-            Quarter = as.factor(quarter(Date)), Year = as.factor(year(Date)), 
+  transmute(Date, Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
             EMS, Wind, Temp_mean, H2O, Sunspots, Sud_Imp, Sud_Storm,
             Dst_mean, Dst_var = Dst_max - Dst_min, Dst_group = factor(case_when( 
               Dst_min < -150 ~ "level_5", Dst_min < -100 ~ "level_4",  
@@ -266,37 +258,37 @@ brain_data2 <- brain_data %>%
   bind_cols( as.tibble(Dst_pca$x) %>% select(PC1, PC2) )
 
 
+##Локальное храненение данных 
+write_csv(brain_data2, "../data/raw/brain_data2.csv") 
+
 ```
 
 
-# Визуализация
+# Визуализация ассоциаций
 
-```{r Dst, fig.height=12}
+```{r vis, fig.height=12}
 
-#EMS сезонность
-brain_data2 %>% 
-  ggplot()+
-  geom_histogram(aes(EMS), fill = "skyblue", color = "black", binwidth = 2)+
-  theme_custom
+#EMS/Sunspots сезонность
+
+ggarrange(
+brain_data2 %>%  
+  group_by(Year, Month) %>% 
+  summarise(EMS_month = sum(EMS, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(x = Month, y = Year, fill = EMS_month)) +
+  geom_tile(colour = "black") + 
+  scale_fill_gradient(low = "green", high = "red") + 
+  theme_custom, 
 
 brain_data2 %>%  
   group_by(Year, Month) %>% 
-  summarise(EMS_avg = mean(EMS, na.rm = TRUE), .groups = "drop") %>% 
-  ggplot(aes(x = Month, y = Year, fill = EMS_avg)) +
+  summarise(Sunspots_month = sum(Sunspots, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(x = Month, y = Year, fill = Sunspots_month)) +
   geom_tile(colour = "black") + 
   scale_fill_gradient(low = "green", high = "red") + 
   theme_custom
+)
 
-brain_data2 %>%  
-  group_by(Year, Month) %>% 
-  summarise(Sunspots_avg = mean(Sunspots, na.rm = TRUE), .groups = "drop") %>% 
-  ggplot(aes(x = Month, y = Year, fill = Sunspots_avg)) +
-  geom_tile(colour = "black") + 
-  scale_fill_gradient(low = "green", high = "red") + 
-  theme_custom
-
-
-#Dst как фактор
+#Dst ~ Sunspots
 brain_data2 %>% group_by(Dst_group) %>% count()
 
 brain_data2 %>%
@@ -316,6 +308,7 @@ corrplot(cor_data3, method = 'number', type = 'lower', diag = FALSE)
 network_plot(cor_data3, min_cor = 0.1)
 
 ```
+
 
 
 
