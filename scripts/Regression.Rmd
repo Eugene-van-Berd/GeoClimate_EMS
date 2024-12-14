@@ -9,6 +9,7 @@ output: html_document
 
 knitr::opts_chunk$set(echo = TRUE)
 
+library(broom)
 library(car)
 library(corrplot)
 library(corrr)
@@ -18,7 +19,10 @@ library(ggcorrplot)
 library(GGally)
 library(ggpubr)
 library(ggbeeswarm)
+library(lmtest)
+library(MASS)
 library(performance)
+library(sandwich)
 library(skimr)
 library(tidyverse)
 library(zoo)
@@ -73,9 +77,9 @@ write_csv(brain_data_poisson, "../data/raw/brain_data_poisson.csv")
 
 ```{r glm, fig.width=10}
 model_glm <- glm(EMS ~ 
-                   Date +
-                   Temp_mean + 
-                   # Wind + 
+                   Date + 
+                   Temp_mean +
+                   # Wind +
                    # H2O +
                    Sunspots +
                    # Sud_Imp + Sud_Storm +
@@ -83,15 +87,59 @@ model_glm <- glm(EMS ~
                    # Dst_var
                    # Dst_group 
                    # PC1 + PC2
-                 ,
-                 data = brain_data_poisson, family = poisson)
+                 , data = brain_data_poisson, family = poisson)
 
 summary(model_glm)
-plot(model_glm)
 
+#Стандартные ошибки
+tidy(model_glm, conf.level = 0.95, conf.int = TRUE)
+
+# plot(model_glm)
 # check_model(model_glm)
-crPlots(model_glm)
+# crPlots(model_glm)
+
+```
+## Регрессия Пуассона и робастные стандартные ошибки
+
+```{r vcovHC}
+
+#Робастные стандартные ошибки
+bind_cols(
+tidy( coeftest(model_glm, vcov. = vcovHC(model_glm, type = "HC3")) ), 
+coefci(model_glm, vcov. = vcovHC(model_glm, type = "HC3")) %>% 
+              as.tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")) %>% 
+  mutate(definition = exp(estimate))
 
 ```
 
 
+## Отрицательное биномиальное распределение
+
+```{r glm.nb, fig.width=10}
+
+model_glm.nb <- glm.nb(EMS ~ 
+                   Date + 
+                   Temp_mean +
+                   # Wind +
+                   # H2O +
+                   Sunspots +
+                   # Sud_Imp + Sud_Storm +
+                   Dst_mean 
+                   # Dst_var
+                   # Dst_group 
+                   # PC1 + PC2
+                 , data = brain_data_poisson, link = "log")
+
+summary(model_glm.nb)
+tidy(model_glm.nb, conf.level = 0.95, conf.int = TRUE)
+
+
+# plot(model_glm.nb)
+
+# check_model(model_glm)
+# crPlots(model_glm.nb)
+
+```
+
+# Диагностика
+Картинки - СЮДА!

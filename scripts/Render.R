@@ -1,8 +1,9 @@
-##Eugene-van-Berd: Рендеринг Rmd файлов в HTML (и Markdown) c выводом в папку 'data/docs'
+# Eugene-van-Berd: Рендеринг Rmd файлов в HTML (и Markdown) c выводом в папку 'data/docs'
 
 library(tidyverse)
 library(rmarkdown)
 
+# Рендер основного файла
 render(
   input = "GeoClimate_EMS.Rmd",
   output_dir = "data/docs",
