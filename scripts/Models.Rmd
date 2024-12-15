@@ -1,0 +1,127 @@
+---
+title: "Регрессионный анализ"
+author: "Evgenii Berdinskikh"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(broom)
+library(car)
+library(conflicted)
+library(lmtest)
+library(MASS)
+library(sandwich)
+library(tidyverse)
+
+conflict_prefer("select", "dplyr", "MASS")
+conflict_prefer("filter", "dplyr", "stats")
+
+theme_custom <- theme_bw()+ theme(
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+```
+
+## Загрузка данных для анализа
+
+```{r read, message=FALSE}
+
+brain_data <- read_csv("../data/raw/brain_data.csv") %>%
+   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
+          Dst_level = factor(Dst_level, 
+                             levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
+                             ordered = TRUE))
+
+```
+
+
+## Регрессия Пуассона 
+
+```{r poisson, fig.width=10}
+
+model_poisson <- glm(
+  EMS ~ Date +
+    Wind + Temp_mean + H2O +
+    # Pressure +
+    Sunspots +
+    # Ap_mean +
+    Dst_mean + Dst_var
+  # Dst_level +
+  # Dst_PC1 + Dst_PC2 +
+  # Sud_Imp + Sud_Storm +
+  ,
+  data = brain_data,
+  family = poisson
+)
+
+summary(model_poisson)
+
+```
+## Регрессия Пуассона и робастные стандартные ошибки
+
+```{r vcovHC}
+
+#Стандартные ошибки
+tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>% 
+  filter(p.value < 0.05)
+
+#Робастные стандартные ошибки
+bind_cols(
+  tidy(coeftest(
+    model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")
+  )),
+  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>%
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+) %>%
+  mutate(definition = exp(estimate)) %>% 
+  filter(p.value < 0.05)
+
+```
+
+
+## Отрицательное биномиальное распределение
+
+```{r NBR, fig.width=10}
+
+model_NBR <- glm.nb(
+  EMS ~ Date +
+    Wind + Temp_mean + H2O +
+    # Pressure +
+    Sunspots +
+    # Ap_mean +
+    Dst_mean + Dst_var
+  # Dst_level +
+  # Dst_PC1 + Dst_PC2 +
+  # Sud_Imp + Sud_Storm +
+  ,
+  data = brain_data,
+  link = "log"
+)
+
+summary(model_NBR)
+
+tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
+   filter(p.value < 0.05)
+
+```
+
+## Диагностика моделей
+
+```{r}
+
+# Регрессия Пуассона
+
+plot(model_poisson)
+crPlots(model_poisson)
+
+```
+
