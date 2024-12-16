@@ -9,6 +9,23 @@
     ]
   },
   "Packages": {
+    "AER": {
+      "Package": "AER",
+      "Version": "1.2-14",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Requirements": [
+        "Formula",
+        "R",
+        "car",
+        "lmtest",
+        "sandwich",
+        "stats",
+        "survival",
+        "zoo"
+      ],
+      "Hash": "c59e9840e0e17154bb7bb3e2ed89b10c"
+    },
     "DBI": {
       "Package": "DBI",
       "Version": "1.2.3",

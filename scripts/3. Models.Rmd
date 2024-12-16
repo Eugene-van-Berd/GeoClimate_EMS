@@ -9,6 +9,7 @@ output: html_document
 
 knitr::opts_chunk$set(echo = TRUE)
 
+library(AER)
 library(broom)
 library(car)
 library(conflicted)
@@ -44,84 +45,124 @@ brain_data <- read_csv("../data/raw/brain_data.csv") %>%
 ```
 
 
-## Регрессия Пуассона 
+## Моделирование
 
-```{r poisson, fig.width=10}
+```{r model, fig.width=10}
 
-model_poisson <- glm(
-  EMS ~ Date +
-    Wind + Temp_mean + H2O +
-    # Pressure +
-    Sunspots +
-    # Ap_mean +
-    Dst_mean + Dst_var
-  # Dst_level +
-  # Dst_PC1 + Dst_PC2 +
-  # Sud_Imp + Sud_Storm +
-  ,
-  data = brain_data,
-  family = poisson
-)
-
+model_poisson <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                     data = brain_data, family = poisson)
 summary(model_poisson)
+dispersiontest(model_poisson)
 
-```
-## Регрессия Пуассона и робастные стандартные ошибки
-
-```{r vcovHC}
-
-#Стандартные ошибки
-tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>% 
-  filter(p.value < 0.05)
-
-#Робастные стандартные ошибки
-bind_cols(
-  tidy(coeftest(
-    model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")
-  )),
-  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>%
-    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
-) %>%
-  mutate(definition = exp(estimate)) %>% 
-  filter(p.value < 0.05)
-
-```
-
-
-## Отрицательное биномиальное распределение
-
-```{r NBR, fig.width=10}
-
-model_NBR <- glm.nb(
-  EMS ~ Date +
-    Wind + Temp_mean + H2O +
-    # Pressure +
-    Sunspots +
-    # Ap_mean +
-    Dst_mean + Dst_var
-  # Dst_level +
-  # Dst_PC1 + Dst_PC2 +
-  # Sud_Imp + Sud_Storm +
-  ,
-  data = brain_data,
-  link = "log"
-)
-
+model_NBR <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                    data = brain_data, link = "log")
 summary(model_NBR)
 
+```
+## Параметры модели
+
+```{r params, fig.width=14}
+
+#Пуассон
+tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
+  filter(p.value < 0.05) %>% 
+  mutate(
+    model = "Poisson",  
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) 
+
+#Пуассон с коррекцией гетероскедастичности
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
+  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+  ) %>%
+  filter(p.value < 0.05) %>% 
+  mutate(
+    model = "Poisson_vcovHC", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3)))
+
+#Отрицательное биномиальное распределение
 tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
-   filter(p.value < 0.05)
+  filter(p.value < 0.05) %>% 
+  mutate(
+    model = "Neg_binomial", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) 
 
 ```
 
 ## Диагностика моделей
-
 ```{r}
 
 # Регрессия Пуассона
-
 plot(model_poisson)
 crPlots(model_poisson)
+
+#  Отрицательное биномиальное распределение
+plot(model_NBR)
+crPlots(model_NBR)
+
+```
+
+
+#Сравнение моделей
+```{r fig.width=12}
+
+bind_rows(
+tidy(model_poisson) %>% 
+  mutate(model = "Poisson"),
+tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))) %>% 
+  mutate(model = "Poisson_vcovHC"),
+tidy(model_NBR) %>%
+  mutate(model = "Negative Binomial")
+) %>% filter(term != "(Intercept)") %>%
+  ggplot(aes(x = term, y = estimate, color = model, group = model)) +
+  geom_pointrange(aes(ymin = estimate - std.error, ymax = estimate + std.error), 
+                  position = position_dodge(width = 0.6)) +  
+  labs(title = "Сравнение коэффициентов моделей",
+       x = "Предикторы",
+       y = "Оценка коэффициента") +
+  coord_flip() +  
+  theme_custom
+
+
+##Значимость предикторов
+ggarrange(
+tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  ggplot(aes(x = term,
+             y = estimate, ymin = conf.low,
+             ymax = conf.high))+
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") + 
+  coord_flip() + 
+  labs( x = "", y = "", title = "Стандартные ошибки") +
+  theme_custom, 
+
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
+  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+  ) %>% filter(term != "(Intercept)") %>%
+  ggplot(aes(x = term,
+             y = estimate, ymin = conf.low,
+             ymax = conf.high))+
+  geom_pointrange() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") + 
+  scale_x_discrete(position = "top")+
+  coord_flip() + 
+  labs( x = "", y = "", title = "Робастные ошибки") +
+  theme_custom
+
+)
 
 ```
 
