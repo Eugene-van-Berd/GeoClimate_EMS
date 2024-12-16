@@ -1,0 +1,241 @@
+---
+title: "Регрессионный анализ"
+author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "data/pics/models-"
+  )
+
+library(AER)
+library(broom)
+library(car)
+library(conflicted)
+library(lmtest)
+library(MASS)
+library(sandwich)
+library(tidyverse)
+
+conflict_prefer("select", "dplyr", "MASS")
+conflict_prefer("filter", "dplyr", "stats")
+conflict_prefer("lag", "dplyr", "stats")
+
+theme_custom <- theme_bw()+ theme(
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+
+```
+
+## Загрузка данных для анализа
+
+```{r read, message=FALSE}
+
+brain_data <- read_csv("data/raw/brain_data.csv") %>%
+   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
+          Dst_level = factor(Dst_level, 
+                             levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
+                             ordered = TRUE))
+
+```
+
+
+## Моделирование
+
+```{r model, fig.width=10}
+
+model_poisson <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                     data = brain_data, family = poisson)
+summary(model_poisson)
+dispersiontest(model_poisson)
+
+model_NBR <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                    data = brain_data, link = "log")
+summary(model_NBR)
+
+```
+## Параметры модели
+
+```{r params, fig.width=14}
+
+#Пуассон
+tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
+  mutate(
+    model = "Poisson",  
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_data
+
+#Пуассон с коррекцией гетероскедастичности
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
+  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+  ) %>%
+  mutate(
+    model = "Poisson_vcovHC", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_vcovHC_data
+
+#Пуассон с коррекцией гетероскедастичности и автокорреляции
+residuals(model_poisson, type = "response") %>% acf()
+
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHAC(model_poisson))),
+  coefci(model_poisson, vcov. = vcovHAC(model_poisson)) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+) %>%
+  mutate(
+    model = "Poisson_vcovHAC", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_vcovHAC_data
+
+#Отрицательное биномиальное распределение
+tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
+  # filter(p.value < 0.05) %>% 
+  mutate(
+    model = "Neg_binomial", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Neg_binomial_data
+
+
+bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
+  arrange(term)
+
+```
+
+## Диагностика моделей
+```{r plots}
+
+# Регрессия Пуассона
+plot(model_poisson)
+crPlots(model_poisson)
+
+#  Отрицательное биномиальное распределение
+plot(model_NBR)
+crPlots(model_NBR)
+
+```
+
+
+## Сравнение моделей
+```{r compare, fig.width=12}
+
+bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
+  filter(term != "(Intercept)") %>%
+  ggplot(aes(x = term,y = estimate, ymin = conf.low, ymax = conf.high, colour = model))+
+  geom_pointrange(position = position_dodge(width = 0.6)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") + 
+  coord_flip() + 
+  labs( x = "", y = "Оценка коэффициена", title = "Сравнение моделей") +
+  theme_custom
+
+```
+
+
+## Преобразование Dst
+```{r Dst}
+
+Dst_m1 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                     data = brain_data, family = poisson) 
+
+Dst_m2 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_PC1 + Dst_PC2,
+                     data = brain_data, family = poisson) 
+
+Dst_m3 <-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_level,
+                     data = brain_data, family = poisson) 
+
+AIC(Dst_m1, Dst_m2, Dst_m3)
+
+```
+## Преобразование Sunspot
+```{r Sunspot}
+
+Sunspots_m0 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
+
+Sunspots_m1 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 1)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
+
+Sunspots_m2 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 2)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
+
+Sunspots_m3 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 3)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
+
+Sunspots_mean <- glm(EMS ~ Date + Temp_mean + I(rollmean(Sunspots, 30, fill = NA)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
+
+acf(brain_data$Sunspots)
+
+AIC(Sunspots_m0, Sunspots_m1, Sunspots_m2, Sunspots_m3, Sunspots_mean)
+
+```
+
+
+## Сезонная цикличность
+```{r period}
+
+brain_data %>%
+  transmute(
+    Date,
+    cos_day = cospi(as.numeric(format(Date, "%j")) / 365)
+  ) %>% ggplot()+
+  geom_point(aes(Date, cos_day), colour = "skyblue")+
+  theme_custom
+
+Date_mo <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson)
+Date_m1 <-glm(EMS ~ Date + I(cospi(as.numeric(format(Date, "%j")) / 365)) + Temp_mean + Sunspots + Dst_mean +
+                Dst_var, data = brain_data, family = poisson)
+Date_m2 <- glm(EMS ~ Date + Month + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson) 
+Date_m3 <-glm(EMS ~ Date + I(wday(Date, week_start = 1)) + Temp_mean + Sunspots + Dst_mean +
+                Dst_var, data = brain_data, family = poisson)
+
+anova(Date_mo, Date_m1, test = "LR")
+anova(Date_mo, Date_m2, test = "LR")
+anova(Date_mo, Date_m3, test = "LR")
+
+```
+
+## Сезонная цикличность
+
+```{r factor}
+
+Factor_mo <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson)
+Factor_m1 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + Sud_Imp, data = brain_data, family = poisson)
+Factor_m2 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + Sud_Storm, data = brain_data, family = poisson)
+Factor_m3 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + COVID, data = brain_data %>% 
+                   mutate(COVID = ifelse(Date >= "2020-03-27", "Yes", "No")),
+                 family = poisson)
+
+anova(Factor_mo, Factor_m1, test = "LR")
+anova(Factor_mo, Factor_m2, test = "LR")
+anova(Factor_mo, Factor_m3, test = "LR")
+
+```
+

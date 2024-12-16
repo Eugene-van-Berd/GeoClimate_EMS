@@ -1,0 +1,188 @@
+---
+title: "Преобразование исходных данных"
+author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "data/pics/transform-"
+  )
+
+library(factoextra)
+library(readxl)
+library(skimr)
+library(tidyverse)
+library(zoo)
+
+```
+
+## Загрузка исходных файлов 
+
+```{r read, message=FALSE, warning=FALSE}
+
+# Данные по вызовам скорой помощи по поводу острого нарушения мозгового кровообращения в Иркутске (2006 - 2022 года)
+brain_data_raw <- read_excel("data/raw/database_2024-11-09.xlsx")  
+
+# Индексы геомагнитной активности (Ap) из GFZ, Potsdam (2006 - 2022 года)
+GFZ_Potsdam_Ap <- read_csv("data/raw/GFZ_Potsdam.csv")  
+
+# Индексы геомагнитной активности (Dst) из WDC, Kyoto (2006 - 2022 года)
+WDC_Kyoto_Dst <- read_fwf("data/raw/WDC_Kyoto.dat", fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4))) %>%
+  rowwise() %>%
+  transmute(
+    Date = as.Date(paste0(X9, X2, "-", X3, "-", X5)),
+    Dst_mean = X35,  #Среднее значение Dst за сутки
+    Dst_max = max(c_across(X11:X34), na.rm = TRUE), #Максимальное значение Dst за сутки
+    Dst_min = min(c_across(X11:X34), na.rm = TRUE), #Минимальное значение Dst за сутки
+    across(X11:X34) %>%  set_names(paste0("H_", seq(1, 24))) #Индекс Dst на каждый час
+  ) %>% 
+  ungroup()
+
+# Данные о событиях SSC (Внезапное начало бури) и SI (Внезапный импульс) из Observatori de l'Ebre (2006 - 2022 года)
+Obs_Ebre_SSC <- tibble()
+
+for (i in (2006:2022)) {
+  
+  link <- paste0("data/raw/SC_data/ssc_", i, "_d.txt")
+  
+  Obs_Ebre_SSC %>% rbind(
+    read_tsv(link, col_names = "raw") %>%
+      filter(str_starts(raw, paste0(i))) %>%
+      transmute(
+        Date = str_replace_all(str_trunc( raw, width = 10, ellipsis = ""), " ", "-") %>% as.Date(),
+        Storm = factor(str_remove_all(raw, "-") %>% str_trunc( width = 2, side = "left", ellipsis = "" ),
+          levels = c("SI", "SC"),
+          labels = c("Sud_Imp", "Sud_Storm")
+        ))) -> Obs_Ebre_SSC
+
+  }
+
+Obs_Ebre_SSC <- Obs_Ebre_SSC %>%
+  count(Date, Storm) %>%
+  pivot_wider(names_from = Storm, values_from = n)
+
+
+# Погода в Иркутске из Росгидромет (1882 - 2023 года)
+Roshydromet_Irkutsk <- read_fwf("data/raw/Roshydromet_Irkutsk.dat", fwf_widths(c(
+  5, 1, 4, 1, 2, 1, 2, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1
+))) %>%
+  select(where(is.numeric)) %>%
+  transmute(
+    Date = as.Date(paste0(X3, "-", X5, "-", X7)),
+    Temp_mean = X15,  # Температура за день (средняя, минимум, максиум)
+    Temp_min = X11,
+    Temp_max = X19,
+    H2O = X23 # Количество осадков за день
+  ) 
+
+#Международное число солнечных пятен из SIDC, Brussels (1818 - 2024 года)
+SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FALSE)  %>% 
+  transmute(Date = as.Date(paste0(X1, "-", X2, "-", X3)), 
+            Sunspots = as.numeric(X5))
+```
+
+## Оценка исходных данных
+
+```{r skim_raw}
+
+skim(brain_data_raw)
+
+```
+
+
+## Преобразование Dst индекса
+
+```{r Dst}
+
+#Метод главных компонент 
+Dst_pca <- WDC_Kyoto_Dst %>% select(starts_with("H_")) %>% scale() %>% prcomp()
+summary(Dst_pca)
+
+fviz_eig(Dst_pca, addlabels = T, 
+         xlab = "", ylab = "Процент дисперсии",
+         main = "Объясненная дисперсия компонентов PCA")
+
+#Преобразование WDC_Kyoto_Dst
+WDC_Kyoto_Dst <- WDC_Kyoto_Dst %>% 
+  transmute(Date, Dst_mean,
+            Dst_var = Dst_max - Dst_min, #Размах значений Dst за сутки
+            Dst_level = factor(case_when(#Dst через факторную переменную
+              Dst_min < -150 ~ "Severe", 
+              Dst_min < -100 ~ "Major", 
+              Dst_min < -50 ~ "Moderate",  
+              Dst_min < -20 ~ "Weak",
+              TRUE ~ "Quiet"), 
+              levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"), ordered = TRUE)
+            ) %>% bind_cols( # Dst через главные компоненты
+              as_tibble(Dst_pca$x) %>% select(PC1, PC2) %>% rename(Dst_PC1 = PC1, Dst_PC2 = PC2) )
+
+```
+
+
+## Подготовка файла для анализа
+
+```{r tidy}
+
+brain_data <- brain_data_raw %>% 
+  transmute(
+    Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
+    EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
+    #Разбивку по полу и возрастной группе рассмотрим позже:
+    #EMS_male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`, 
+    #EMS_male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`, 
+    #EMS_male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`, 
+    #EMS_female_1 = `Количество вызовов СМП с диагнозом ОНМК у женщин 25-44 лет`, 
+    #EMS_female_2 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`, 
+    #EMS_female_3 = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`, 
+    
+    #Пропуски в данных заменяем на среднее по соседним значениям:
+    F10.7 = `Cкорректированный (F10.7)` %>% na.approx(na.rm = FALSE), 
+    Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
+    Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
+      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE),
+    
+    #Данные о количестве умерших не используем из-за большого количества пропусков
+  
+  ) %>% 
+  filter(!is.na(Date)) %>%
+  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
+  left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
+  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
+  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %>%  #Данные о индексе Dst 
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
+  mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
+                                                             TRUE ~ "Yes") ) ) )  
+
+```
+
+
+## Оценка преобразованного файла
+
+```{r skim_tidy}
+
+skim(brain_data)
+
+```
+
+## Запись/чтение преобразованного файла
+
+```{r write, message=FALSE}
+
+#Локальное храненение данных 
+write_csv(brain_data, "data/raw/brain_data.csv") 
+
+#Загрузка данных для анализа
+brain_data <- read_csv("data/raw/brain_data.csv") %>%
+   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
+          Dst_level = factor(Dst_level, 
+                             levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
+                             ordered = TRUE))
+
+```
+
