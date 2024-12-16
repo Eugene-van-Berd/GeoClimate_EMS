@@ -1,14 +1,27 @@
 # Структура проекта
 
-1.  **Папка `data`**:
-    -   `docs`: хранение итоговых документов, сгенерированных при рендере Rmd-файлов.
-    -   `help`: хранение вспомогательной информации (картинки, описания, подсказки и т.д.).
-    -   `pics`: хранение итоговых графиков, автоматически сохраняемых при рендере Rmd-файлов.
-    -   `raw`: хранение исходных данных (базы данных и предварительно подготовленные файлы для анализа).
-2.  **Папка `scripts`**:
-    -   Хранение рабочих скриптов (файлы R) и промежуточных отчетов (файлы Rmd).
-3.  **Файл `GeoClimate_EMS.Rmd`**:
-    -   Основной файл для создания итогового отчета.
+## 1. Восстановление зависимостей
+
+Для воспроизводимости среды и установки всех необходимых пакетов, используйте скрипт:
+[**Setup.R**](https://github.com/Eugene-van-Berd/GeoClimate_EMS/blob/master/scripts/Setup.R)
+
+## 2. Папка `data`:
+
+- [`docs`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/docs): хранение итоговых документов, сгенерированных при рендере файлов R Markdown.
+- [`help`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/help): хранение вспомогательной информации (картинки, описания, подсказки и т.д.).
+- [`pics`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/pics): хранение итоговых графиков, автоматически сохраняемых при рендере файлов R Markdown.
+- [`raw`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/raw): хранение исходных баз данных и предварительно подготовленных файлов для анализа.
+
+## 3. Рабочие файлы R Markdown:
+
+- [**1. Transform.Rmd**](https://github.com/Eugene-van-Berd/GeoClimate_EMS/blob/master/1.%20Transform.Rmd): Преобразование исходных данных.
+- [**2. EDA.Rmd**](https://github.com/Eugene-van-Berd/GeoClimate_EMS/blob/master/2.%20EDA.Rmd): Разведочный анализ данных.
+- [**3. Models.Rmd**](https://github.com/Eugene-van-Berd/GeoClimate_EMS/blob/master/3.%20Models.Rmd): Регрессионный анализ.
+
+## 4. Рендеринг файлов R Markdown в HTML:
+
+Для рендеринга файлов R Markdown в папку `data/docs`, используйте скрипт:
+[**Render.R**](https://github.com/Eugene-van-Berd/GeoClimate_EMS/blob/master/scripts/Render.R)
 
 # Литературный обзор
 
