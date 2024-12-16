@@ -1,13 +1,18 @@
 ---
 title: "Регрессионный анализ"
-author: "Evgenii Berdinskikh"
+author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document:
+    keep_md: true
 ---
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "data/pics/figure-"
+  )
 
 library(AER)
 library(broom)
@@ -38,7 +43,7 @@ theme_custom <- theme_bw()+ theme(
 
 ```{r read, message=FALSE}
 
-brain_data <- read_csv("../data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
           Dst_level = factor(Dst_level, 
                              levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),

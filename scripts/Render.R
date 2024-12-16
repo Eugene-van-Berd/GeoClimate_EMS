@@ -3,16 +3,13 @@
 library(tidyverse)
 library(rmarkdown)
 
-# Рендер основного файла
-render(
-  input = "GeoClimate_EMS.Rmd",
-  output_dir = "data/docs",
-  output_file = "GeoClimate_EMS.html"
-)
-
+list.files()
+"1. Transform.Rmd"
+"2. EDA.Rmd"
+"3. Models.Rmd" 
 
 # Путь к нужному Rmd файлу (список файлов можно посмотреть тут - list.files() / list.files("scripts"))
-input_file <- "scripts/EDA_BES.Rmd"
+input_file <- "3. Models.Rmd" 
 
 # Рендерим файл
 render(input = input_file, 

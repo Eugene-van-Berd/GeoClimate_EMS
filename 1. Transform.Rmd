@@ -1,12 +1,18 @@
 ---
 title: "Преобразование исходных данных"
-author: "Evgenii Berdinskikh"
+author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
 date: "`r Sys.Date()`"
-output: html_document
+output: 
+  html_document:
+    keep_md: true
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  fig.path = "data/pics/figure-"
+  )
 
 library(factoextra)
 library(readxl)
@@ -21,13 +27,13 @@ library(zoo)
 ```{r read, message=FALSE, warning=FALSE}
 
 # Данные по вызовам скорой помощи по поводу острого нарушения мозгового кровообращения в Иркутске (2006 - 2022 года)
-brain_data_raw <- read_excel("../data/raw/database_2024-11-09.xlsx")  
+brain_data_raw <- read_excel("data/raw/database_2024-11-09.xlsx")  
 
 # Индексы геомагнитной активности (Ap) из GFZ, Potsdam (2006 - 2022 года)
-GFZ_Potsdam_Ap <- read_csv("../data/raw/GFZ_Potsdam.csv")  
+GFZ_Potsdam_Ap <- read_csv("data/raw/GFZ_Potsdam.csv")  
 
 # Индексы геомагнитной активности (Dst) из WDC, Kyoto (2006 - 2022 года)
-WDC_Kyoto_Dst <- read_fwf("../data/raw/WDC_Kyoto.dat", fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4))) %>%
+WDC_Kyoto_Dst <- read_fwf("data/raw/WDC_Kyoto.dat", fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4))) %>%
   rowwise() %>%
   transmute(
     Date = as.Date(paste0(X9, X2, "-", X3, "-", X5)),
@@ -43,7 +49,7 @@ Obs_Ebre_SSC <- tibble()
 
 for (i in (2006:2022)) {
   
-  link <- paste0("../data/raw/SC_data/ssc_", i, "_d.txt")
+  link <- paste0("data/raw/SC_data/ssc_", i, "_d.txt")
   
   Obs_Ebre_SSC %>% rbind(
     read_tsv(link, col_names = "raw") %>%
@@ -63,7 +69,7 @@ Obs_Ebre_SSC <- Obs_Ebre_SSC %>%
 
 
 # Погода в Иркутске из Росгидромет (1882 - 2023 года)
-Roshydromet_Irkutsk <- read_fwf("../data/raw/Roshydromet_Irkutsk.dat", fwf_widths(c(
+Roshydromet_Irkutsk <- read_fwf("data/raw/Roshydromet_Irkutsk.dat", fwf_widths(c(
   5, 1, 4, 1, 2, 1, 2, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1
 ))) %>%
   select(where(is.numeric)) %>%
@@ -76,7 +82,7 @@ Roshydromet_Irkutsk <- read_fwf("../data/raw/Roshydromet_Irkutsk.dat", fwf_width
   ) 
 
 #Международное число солнечных пятен из SIDC, Brussels (1818 - 2024 года)
-SIDC_SILSO <- read_delim("../data/raw/SIDC_SILSO.csv", delim = ";", col_names = FALSE)  %>% 
+SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FALSE)  %>% 
   transmute(Date = as.Date(paste0(X1, "-", X2, "-", X3)), 
             Sunspots = as.numeric(X5))
 ```
@@ -169,10 +175,10 @@ skim(brain_data)
 ```{r write, message=FALSE}
 
 #Локальное храненение данных 
-write_csv(brain_data, "../data/raw/brain_data.csv") 
+write_csv(brain_data, "data/raw/brain_data.csv") 
 
 #Загрузка данных для анализа
-brain_data <- read_csv("../data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
           Dst_level = factor(Dst_level, 
                              levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
