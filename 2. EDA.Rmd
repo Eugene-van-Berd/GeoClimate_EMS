@@ -2,9 +2,7 @@
 title: "Разведочный анализ данных"
 author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
 date: "`r Sys.Date()`"
-output: 
-  html_document:
-    keep_md: true
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
