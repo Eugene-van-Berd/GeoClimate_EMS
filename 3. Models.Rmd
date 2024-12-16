@@ -72,7 +72,6 @@ summary(model_NBR)
 
 #Пуассон
 tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
-  # filter(p.value < 0.05) %>% 
   mutate(
     model = "Poisson",  
     EMS_effect = ifelse(
@@ -86,13 +85,27 @@ bind_cols(
   coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
     as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
   ) %>%
-  # filter(p.value < 0.05) %>% 
   mutate(
     model = "Poisson_vcovHC", 
     EMS_effect = ifelse(
     term != "(Intercept)",
     paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
     signif((exp(estimate)), 3))) -> Poisson_vcovHC_data
+
+#Пуассон с коррекцией гетероскедастичности и автокорреляции
+residuals(model_poisson, type = "response") %>% acf()
+
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHAC(model_poisson))),
+  coefci(model_poisson, vcov. = vcovHAC(model_poisson)) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+) %>%
+  mutate(
+    model = "Poisson_vcovHAC", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_vcovHAC_data
 
 #Отрицательное биномиальное распределение
 tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
@@ -105,7 +118,7 @@ tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>%
     signif((exp(estimate)), 3))) -> Neg_binomial_data
 
 
-bind_rows(Poisson_data, Poisson_vcovHC_data, Neg_binomial_data) %>% 
+bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
   arrange(term)
 
 ```
@@ -127,7 +140,7 @@ crPlots(model_NBR)
 ## Сравнение моделей
 ```{r compare, fig.width=12}
 
-bind_rows(Poisson_data, Poisson_vcovHC_data, Neg_binomial_data) %>% 
+bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
   filter(term != "(Intercept)") %>%
   ggplot(aes(x = term,y = estimate, ymin = conf.low, ymax = conf.high, colour = model))+
   geom_pointrange(position = position_dodge(width = 0.6)) +
@@ -142,42 +155,39 @@ bind_rows(Poisson_data, Poisson_vcovHC_data, Neg_binomial_data) %>%
 ## Преобразование Dst
 ```{r Dst}
 
-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
-                     data = brain_data, family = poisson) %>% 
-  summary()
+Dst_m1 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+                     data = brain_data, family = poisson) 
 
-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_PC1 + Dst_PC2,
-                     data = brain_data, family = poisson) %>% 
-  summary()
+Dst_m2 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_PC1 + Dst_PC2,
+                     data = brain_data, family = poisson) 
 
+Dst_m3 <-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_level,
+                     data = brain_data, family = poisson) 
 
-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_level,
-                     data = brain_data, family = poisson) %>% 
-  summary()
+AIC(Dst_m1, Dst_m2, Dst_m3)
 
 ```
 ## Преобразование Sunspot
 ```{r Sunspot}
 
-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
+Sunspots_m0 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
 
-glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 1)) + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
+Sunspots_m1 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 1)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
 
-glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 2)) + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
+Sunspots_m2 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 2)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
 
-glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 3)) + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
+Sunspots_m3 <- glm(EMS ~ Date + Temp_mean + I(lag(Sunspots, 3)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
 
+Sunspots_mean <- glm(EMS ~ Date + Temp_mean + I(rollmean(Sunspots, 30, fill = NA)) + Dst_mean + Dst_var, 
+    data = brain_data, family = poisson) 
 
 acf(brain_data$Sunspots)
 
-
-glm(EMS ~ Date + Temp_mean + I(rollmean(Sunspots, 7, fill = NA)) + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
-
+AIC(Sunspots_m0, Sunspots_m1, Sunspots_m2, Sunspots_m3, Sunspots_mean)
 
 ```
 
@@ -185,38 +195,47 @@ glm(EMS ~ Date + Temp_mean + I(rollmean(Sunspots, 7, fill = NA)) + Dst_mean + Ds
 ## Сезонная цикличность
 ```{r period}
 
-
-brain_data %>%
-  transmute(
-    Date,
-    cos_month = cospi(as.numeric(format(Date, "%m")) / 12)
-  ) %>%
-  ggplot() +
-  geom_line(aes(x = Date, y = cos_month), color = "skyblue") + 
-  theme_custom
-
-glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
-glm(EMS ~ Month + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
-glm(EMS ~ I(cospi(as.numeric(format(Date, "%m")) / 12)) + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
-
-glm(EMS ~ Date + I(cospi(as.numeric(format(Date, "%m")) / 12)) + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
-
-
 brain_data %>%
   transmute(
     Date,
     cos_day = cospi(as.numeric(format(Date, "%j")) / 365)
   ) %>% ggplot()+
-  geom_line(aes(Date, cos_day), colour = "skyblue")+
+  geom_point(aes(Date, cos_day), colour = "skyblue")+
   theme_custom
 
-glm(EMS ~ Date + I(cospi(as.numeric(format(Date, "%j")) / 365)) + Temp_mean + Sunspots + Dst_mean + Dst_var, 
-    data = brain_data, family = poisson) %>% summary()
+Date_mo <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson)
+Date_m1 <-glm(EMS ~ Date + I(cospi(as.numeric(format(Date, "%j")) / 365)) + Temp_mean + Sunspots + Dst_mean +
+                Dst_var, data = brain_data, family = poisson)
+Date_m2 <- glm(EMS ~ Date + Month + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson) 
+Date_m3 <-glm(EMS ~ Date + I(wday(Date, week_start = 1)) + Temp_mean + Sunspots + Dst_mean +
+                Dst_var, data = brain_data, family = poisson)
 
+anova(Date_mo, Date_m1, test = "LR")
+anova(Date_mo, Date_m2, test = "LR")
+anova(Date_mo, Date_m3, test = "LR")
+
+```
+
+## Сезонная цикличность
+
+```{r factor}
+
+Factor_mo <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var, data = brain_data, family = poisson)
+Factor_m1 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + Sud_Imp, data = brain_data, family = poisson)
+Factor_m2 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + Sud_Storm, data = brain_data, family = poisson)
+Factor_m3 <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean +
+                 Dst_var + COVID, data = brain_data %>% 
+                   mutate(COVID = ifelse(Date >= "2020-03-27", "Yes", "No")),
+                 family = poisson)
+
+anova(Factor_mo, Factor_m1, test = "LR")
+anova(Factor_mo, Factor_m2, test = "LR")
+anova(Factor_mo, Factor_m3, test = "LR")
 
 ```
 
