@@ -39,10 +39,10 @@ theme_custom <- theme_bw()+ theme(
 ```{r read, message=FALSE}
 
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
-   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
-          Dst_level = factor(Dst_level, 
-                             levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
-                             ordered = TRUE))
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
+
+brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
 
 ```
 
