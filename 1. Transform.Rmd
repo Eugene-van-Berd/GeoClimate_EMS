@@ -107,7 +107,7 @@ fviz_eig(Dst_pca, addlabels = T,
          main = "Объясненная дисперсия компонентов PCA")
 
 #Преобразование WDC_Kyoto_Dst
-WDC_Kyoto_Dst <- WDC_Kyoto_Dst %>% 
+Dst_transform <- WDC_Kyoto_Dst %>% 
   transmute(Date, Dst_mean,
             Dst_var = Dst_max - Dst_min, #Размах значений Dst за сутки
             Dst_level = factor(case_when(#Dst через факторную переменную
@@ -131,6 +131,7 @@ brain_data <- brain_data_raw %>%
   transmute(
     Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
     EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
+    
     #Разбивку по полу и возрастной группе рассмотрим позже:
     #EMS_male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`, 
     #EMS_male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`, 
@@ -152,35 +153,87 @@ brain_data <- brain_data_raw %>%
   left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
   left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
-  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %>%  #Данные о индексе Dst 
+  left_join(Dst_transform, by = join_by(Date)) %>%  #Данные о индексе Dst 
   left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
   mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
-                                                             TRUE ~ "Yes") ) ) )  
+                                                             TRUE ~ "Yes") ) ) ) %>% 
+  mutate(COVID = as.factor(ifelse(Date >= "2020-03-27", "Yes", "No")))
+
+```
+
+## Подготовка длинного файла для анализа
+
+```{r long}
+
+brain_data_long <- brain_data_raw %>% 
+  transmute(
+    Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
+    
+    #Данные скорой помощи с разбивкой по полу и возрасту
+    EMS_Male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`,
+    EMS_Male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`,
+    EMS_Male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`,
+    EMS_Female_1 = `Количество вызовов СМП с диагнозом ОНМК у женщин 25-44 лет`,
+    EMS_Female_2 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`,
+    EMS_Female_3 = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`,
+    
+    #Пропуски в данных заменяем на среднее по соседним значениям:
+    F10.7 = `Cкорректированный (F10.7)` %>% na.approx(na.rm = FALSE), 
+    Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
+    Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
+      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE),
+    
+    #Данные о количестве умерших не используем из-за большого количества пропусков
+  
+  ) %>% 
+  
+  filter(!is.na(Date)) %>%
+  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
+  left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
+  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
+  left_join(Dst_transform, by = join_by(Date)) %>%  #Данные о индексе Dst 
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
+  mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
+                                                             TRUE ~ "Yes") ) ) )  %>% 
+  
+  # Длинный формат данных, 1 день - 6 строк
+  pivot_longer(cols = starts_with("EMS_"), 
+               names_to = c("Sex", "Age"), 
+               names_pattern = "EMS_(Male|Female)_(1|2|3)", 
+               values_to = "EMS"
+  ) %>% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+           Age == 1 ~ "25-44", Age == 2 ~ "45-54", Age == 3 ~ "55+"
+                         ))) %>% 
+  mutate(COVID = as.factor(ifelse(Date >= "2020-03-27", "Yes", "No")))
 
 ```
 
 
-## Оценка преобразованного файла
+## Оценка преобразованных файлов
 
 ```{r skim_tidy}
 
 skim(brain_data)
+skim(brain_data_long)
 
 ```
 
-## Запись/чтение преобразованного файла
+## Запись/чтение преобразованных файлов
 
 ```{r write, message=FALSE}
 
 #Локальное храненение данных 
 write_csv(brain_data, "data/raw/brain_data.csv") 
+write_csv(brain_data_long, "data/raw/brain_data_long.csv") 
 
 #Загрузка данных для анализа
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
-   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
-          Dst_level = factor(Dst_level, 
-                             levels = c("Quiet", "Weak", "Moderate", "Major", "Severe"),
-                             ordered = TRUE))
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
+
+brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
 
 ```
 
