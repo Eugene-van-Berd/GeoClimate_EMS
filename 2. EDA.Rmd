@@ -18,6 +18,10 @@ library(conflicted)
 library(forecast)
 library(ggpubr)
 library(tidyverse)
+library(lubridate)
+library(GGally)
+library(ggfortify) 
+
 
 conflict_prefer("filter", "dplyr", "stats")
 conflict_prefer("lag", "dplyr", "stats")
@@ -47,6 +51,65 @@ brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
 ```
 
 ## Корреляция количественных переменных
+
+```{r message = false fig.width=20}
+
+
+# Предобработка данных
+brain_data_clear <- brain_data %>% 
+  select(where(is.numeric) & !c(ends_with("min"), ends_with("max")) & 
+         !c("Date", "Month", "Year", "Dst_var", "Dst_level", "Dst_PC1", "Dst_PC2")) %>% filter(complete.cases(.))
+
+# Функция для отображения корреляций с нейтральным цветом для значений близких к 0
+color_correlation_fixed <- function(data, mapping, ...) {
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  cor_value <- cor(x, y, use = "complete.obs")
+  
+  # Определение цвета: близкие к 0 делаем нейтральными (серым)
+  color <- if (abs(cor_value) < 0.1) {
+    scales::alpha("gray50", 0.5)  # Нейтральный серый для слабых корреляций
+  } else if (cor_value > 0) {
+    scales::alpha("blue", abs(cor_value))  # Синий для положительных
+  } else {
+    scales::alpha("red", abs(cor_value))   # Красный для отрицательных
+  }
+  
+  # Фильтр для небольших значений корреляции
+  cor_label <- ifelse(abs(cor_value) < 0.01, "0", sprintf("%.2f", cor_value))
+  
+  ggplot(data.frame()) + # Пустой data.frame
+    annotate(
+      "text", 
+      x = 0.5, y = 0.5, # Центр ячейки
+      label = cor_label,
+      size = 6,
+      color = color
+    ) +
+    theme_void() # Убираем лишнее оформление
+}
+
+# Функция для линии тренда с золотистым цветом
+golden_smooth <- function(data, mapping, ...) {
+  ggplot(data, mapping) +
+    geom_point(alpha = 0.4, size = 0.5, color = "black") + # Прозрачные точки
+    geom_smooth(color = "gold", ...) + # Золотистый цвет линии тренда
+    
+    theme_custom
+}
+
+# Построение графика
+ggpairs(
+  brain_data_clear, 
+  progress = FALSE,
+  upper = list(continuous = color_correlation_fixed), # Подсветка корреляций
+  lower = list(continuous = golden_smooth)           # Золотистая линия тренда
+)+
+  theme(
+    axis.text.x = element_text(size = 8),  # Уменьшение текста по оси X
+    axis.text.y = element_text(size = 8)   # Уменьшение текста по оси Y
+  )
+```
 
 ```{r cor, fig.width=10, message=FALSE}
 
@@ -253,3 +316,138 @@ brain_data %>%
   theme_custom
 
 ```
+```{r read}
+work_days <- read_csv("./data/raw/working_calendar_all_years.csv", show_col_types = FALSE)
+
+brain_data <- read_csv("./data/raw/brain_data.csv", show_col_types = FALSE) %>% 
+  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
+skimr::skim(brain_data)
+
+
+
+```
+
+# Проверка влияния рабчих дней и сезонов на количество вызовов скорой помощи
+
+```{r read}
+work_days <- read_csv("./data/raw/working_calendar_all_years.csv", show_col_types = FALSE)
+
+brain_data <- read_csv("./data/raw/brain_data.csv", show_col_types = FALSE) %>% 
+  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
+skimr::skim(brain_data)
+
+
+
+```
+## Тип дня и количество вызовов
+```{r}
+brain_data <- work_days %>%
+  rename(DayType = Type) %>%  # Переименование столбца Type в DayType
+  inner_join(brain_data, by = "Date") %>%
+  mutate(DayType = as.factor(DayType),
+         DayType = dplyr::recode(DayType, "work" = "workday", "nowork" = "weekend")) 
+skimr::skim(brain_data)
+```
+
+```{r, fig.width=12}
+# Устанавливаем цвета для каждого DayType
+daytype_colors <- c(
+  "holiday weekend" = "green3",  
+  "weekend" = "darkgreen",         
+  "preholiday" = "steelblue",    
+  "workday" = "firebrick"        
+)
+
+# Построение боксплота 
+ggplot(brain_data, aes(x = DayType, y = EMS, fill = DayType)) +
+  geom_boxplot() +
+  scale_fill_manual(values = daytype_colors) +
+  labs(
+    title = "EMS в зависимости от DayType",
+    x = "Тип дня (DayType)",
+    y = "EMS",
+    fill = "Тип дня"
+  ) +
+  theme_custom 
+  
+```
+```{r}
+
+merged_data <- brain_data %>%
+  filter(DayType %in% c("workday", "weekend")) %>%  # Оставляем только интересующие уровни
+ 
+# Проверяем уровни переменной DayType
+levels(merged_data$DayType)
+
+# Выполняем t-тест
+t_test_result <- t.test(
+  EMS ~ DayType, 
+  data = merged_data %>% filter(!is.na(EMS))
+)
+print(t_test_result)
+
+
+```
+
+**Интерпретация:**
+- \( p \)-value < 0.05: Различие между средними значениями EMS для будней и выходных **статистически значимо**.
+- Среднее значение EMS выше на будних днях (14.94728) по сравнению с выходными (12.58244).
+
+
+## Добавляем колонку с сезоном
+```{r fig.width=12}
+
+# Добавляем колонку с сезоном
+merged_data <- brain_data %>%
+  mutate(
+    Season = case_when(
+      month(Date) %in% c(12, 1, 2) ~ "Winter",
+      month(Date) %in% c(3, 4, 5) ~ "Spring",
+      month(Date) %in% c(6, 7, 8) ~ "Summer",
+      month(Date) %in% c(9, 10, 11) ~ "Autumn",
+      TRUE ~ NA_character_
+    ),
+    Season = as.factor(Season)  # Преобразуем в фактор
+  )
+
+# Проверяем распределение EMS по сезонам
+ggplot(merged_data, aes(x = Season, y = EMS, fill = Season)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_custom +
+  labs(title = "Распределение EMS по сезонам", x = "Сезон", y = "EMS")
+
+
+# Сравнение EMS между сезонами: тест Крускала–Уоллиса
+kruskal_test <- kruskal.test(EMS ~ Season, data = merged_data)
+print("Крускала–Уоллиса тест:")
+print(kruskal_test)
+
+# попарное сравнение (Dunn test)
+if (kruskal_test$p.value < 0.05) {
+  pairwise_comparison <- FSA::dunnTest(EMS ~ Season, data = merged_data, method = "bonferroni")
+  print("Попарное сравнение (Dunn test):")
+  print(pairwise_comparison)
+}
+
+```
+
+### **Выводы**
+1. Распределение EMS между сезонами различается (p-value Крускала-Уоллиса < 0.05).
+2. При попарном сравнении значимые различия найдены только между **Autumn** и **Winter** (p.adj = 0.033).
+3. Для других пар сезонов различия статистически незначимы.
+
+```{r, fig.width=10}
+# Построение боксплотов для сравнения EMS по сезонам
+library(ggplot2)
+
+ggplot(merged_data, aes(x = Season, y = EMS)) +
+  geom_boxplot() +
+  labs(
+    title = "EMS по сезонам",
+    x = "Сезон",
+    y = "EMS"
+  ) +
+  theme_custom
+```
+
+
