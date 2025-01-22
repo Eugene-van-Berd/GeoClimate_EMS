@@ -120,6 +120,14 @@ bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_
   arrange(term)
 
 ```
+```{r}
+brain_data <- brain_data %>%
+  mutate(EMS_lag7 = lag(EMS, 7)) %>%
+#  mutate(EMS_lag365 = lag(EMS, 365)) %>%
+#  filter(!is.na(EMS_lag365)) %>%
+  filter(!is.na(EMS_lag7))
+
+```
 
 ## Диагностика моделей
 ```{r plots}
@@ -148,6 +156,60 @@ bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_
   theme_custom
 
 ```
+
+#Другие модели
+## Оптимизируем по параметрам
+```{r}
+model_f <- glm(EMS ~ 
+                 Wind + 
+                 Temp_mean + 
+                 Sunspots + 
+                 Date + 
+                 Pressure, 
+               data = brain_data, family = poisson)
+
+summary(model_f)
+plot(model_f)
+crPlots(model_f)
+
+```
+
+## Добавляем лаг в 7 дней
+
+```{r}
+brain_data <- brain_data %>%
+  mutate(EMS_lag7 = lag(EMS, 7)) %>%
+#  mutate(EMS_lag365 = lag(EMS, 365)) %>%
+#  filter(!is.na(EMS_lag365)) %>%
+  filter(!is.na(EMS_lag7))
+
+```
+
+```{r}
+model_poisson <- glm(EMS ~ 
+                 EMS_lag7 +
+                 Wind + 
+                 Temp_mean + 
+                 Sunspots + 
+                 Date + 
+                 Pressure, 
+               data = brain_data, family = poisson)
+
+summary(model_poisson)
+plot(model_poisson)
+crPlots(model_poisson)
+
+```
+
+
+
+```{r}
+
+
+residuals(model_poisson, type = "response") %>% acf()
+
+```
+Введение лага в 7 дней снижает автокорреляцию
 
 
 ## Преобразование Dst
