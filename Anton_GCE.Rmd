@@ -1,0 +1,1281 @@
+---
+title: "Разведочный анализ данных"
+author: ""
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(corrplot)
+library(corrr)
+library(factoextra)
+library(forecast)
+library(ggpubr)
+library(ggbeeswarm)
+library(skimr)
+library(tidyverse)
+library(zoo)
+library(car)
+theme_custom <- theme_bw()+ theme(
+    plot.title = element_text(size = 30, hjust = 0.5),
+    plot.subtitle = element_text(size = 25, hjust = 0.5),
+    strip.text = element_text(size = 20),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 25),
+    legend.title = element_text(size = 25),
+    legend.text = element_text(size = 20)
+  )
+
+```
+
+# Загрузка Tidy data для анализа
+
+```{r read}
+work_days <- read_csv("./data/raw/working_calendar_all_years.csv", show_col_types = FALSE)
+
+brain_data <- read_csv("./data/raw/brain_data.csv", show_col_types = FALSE) %>% 
+  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
+skimr::skim(brain_data)
+
+
+
+```
+
+```{r}
+brain_data <- work_days %>%
+  rename(DayType = Type) %>%  # Переименование столбца Type в DayType
+  inner_join(brain_data, by = "Date") %>%
+  mutate(DayType = as.factor(DayType),
+         DayType = dplyr::recode(DayType, "work" = "workday", "nowork" = "weekend")) 
+skimr::skim(brain_data)
+```
+
+```{r, fig.width=12}
+library(ggplot2)
+
+# Устанавливаем цвета для каждого DayType
+daytype_colors <- c(
+  "holiday weekend" = "green3",  # Зеленый
+  "weekend" = "darkgreen",          # Зеленый
+  "preholiday" = "steelblue",    # Синий (не слишком контрастный)
+  "workday" = "firebrick"        # Красный
+)
+
+# Построение боксплота с заданными цветами
+ggplot(brain_data, aes(x = DayType, y = EMS, fill = DayType)) +
+  geom_boxplot() +
+  scale_fill_manual(values = daytype_colors) +
+  labs(
+    title = "EMS в зависимости от DayType",
+    x = "Тип дня (DayType)",
+    y = "EMS",
+    fill = "Тип дня"
+  ) +
+  theme_custom 
+  
+```
+
+# Корреляция количественных переменных
+
+# Добавляем колонку с сезоном
+```{r fig.width=12}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Добавляем колонку с сезоном
+merged_data <- brain_data %>%
+  mutate(
+    Season = case_when(
+      month(Date) %in% c(12, 1, 2) ~ "Winter",
+      month(Date) %in% c(3, 4, 5) ~ "Spring",
+      month(Date) %in% c(6, 7, 8) ~ "Summer",
+      month(Date) %in% c(9, 10, 11) ~ "Autumn",
+      TRUE ~ NA_character_
+    ),
+    Season = as.factor(Season)  # Преобразуем в фактор
+  )
+
+# Проверяем распределение EMS по сезонам
+ggplot(merged_data, aes(x = Season, y = EMS, fill = Season)) +
+  geom_boxplot(alpha = 0.7) +
+  theme_custom +
+  labs(title = "Распределение EMS по сезонам", x = "Сезон", y = "EMS")
+
+# Проверяем нормальность данных в EMS по сезонам (Шапиро-Уилк)
+normality_test <- merged_data %>%
+  group_by(Season) %>%
+  summarise(
+    p_value = shapiro.test(EMS)$p.value
+  )
+
+print("Проверка нормальности (Шапиро-Уилк):")
+print(normality_test)
+
+# Сравнение EMS между сезонами: тест Крускала–Уоллиса
+kruskal_test <- kruskal.test(EMS ~ Season, data = merged_data)
+print("Крускала–Уоллиса тест:")
+print(kruskal_test)
+
+# Если нужно выполнить попарное сравнение (Dunn test)
+if (kruskal_test$p.value < 0.05) {
+  pairwise_comparison <- FSA::dunnTest(EMS ~ Season, data = merged_data, method = "bonferroni")
+  print("Попарное сравнение (Dunn test):")
+  print(pairwise_comparison)
+}
+
+```
+```{r, fig.width=10}
+# Построение боксплотов для сравнения EMS по сезонам
+library(ggplot2)
+
+ggplot(merged_data, aes(x = Season, y = EMS)) +
+  geom_boxplot() +
+  labs(
+    title = "EMS по сезонам",
+    x = "Сезон",
+    y = "EMS"
+  ) +
+  theme_custom
+```
+
+```{r}
+
+# Убедимся, что в DayType только два уровня и они корректные
+merged_data <- brain_data %>%
+  filter(DayType %in% c("workday", "weekend")) %>%  # Оставляем только интересующие уровни
+  mutate(DayType = droplevels(DayType))  # Удаляем ненужные уровни
+
+# Проверяем уровни переменной DayType
+levels(merged_data$DayType)
+
+# Выполняем t-тест
+t_test_result <- t.test(
+  EMS ~ DayType, 
+  data = merged_data %>% filter(!is.na(EMS))
+)
+print(t_test_result)
+
+# Если распределение ненормальное, используем U-критерий Манна-Уитни
+wilcox_test_result <- wilcox.test(
+  EMS ~ DayType, 
+  data = merged_data %>% filter(!is.na(EMS))
+)
+print(wilcox_test_result)
+
+
+```
+```{r message = false fig.width=16}
+library(dplyr)
+library(GGally)
+library(ggplot2)
+
+# Предобработка данных
+brain_data_clear <- brain_data %>% 
+  select(where(is.numeric) & !c(ends_with("min"), ends_with("max")) & 
+         !c("Date", "Month", "Year", "Dst_var", "Dst_level", "Dst_PC1", "Dst_PC2")) %>% filter(complete.cases(.))
+
+# Функция для отображения корреляций с нейтральным цветом для значений близких к 0
+color_correlation_fixed <- function(data, mapping, ...) {
+  x <- eval_data_col(data, mapping$x)
+  y <- eval_data_col(data, mapping$y)
+  cor_value <- cor(x, y, use = "complete.obs")
+  
+  # Определение цвета: близкие к 0 делаем нейтральными (серым)
+  color <- if (abs(cor_value) < 0.1) {
+    scales::alpha("gray50", 0.5)  # Нейтральный серый для слабых корреляций
+  } else if (cor_value > 0) {
+    scales::alpha("blue", abs(cor_value))  # Синий для положительных
+  } else {
+    scales::alpha("red", abs(cor_value))   # Красный для отрицательных
+  }
+  
+  # Фильтр для небольших значений корреляции
+  cor_label <- ifelse(abs(cor_value) < 0.01, "0", sprintf("%.2f", cor_value))
+  
+  ggplot(data.frame()) + # Пустой data.frame
+    annotate(
+      "text", 
+      x = 0.5, y = 0.5, # Центр ячейки
+      label = cor_label,
+      size = 6,
+      color = color
+    ) +
+    theme_void() # Убираем лишнее оформление
+}
+
+# Функция для линии тренда с золотистым цветом
+golden_smooth <- function(data, mapping, ...) {
+  ggplot(data, mapping) +
+    geom_point(alpha = 0.4, size = 0.5, color = "black") + # Прозрачные точки
+    geom_smooth(color = "gold", ...) + # Золотистый цвет линии тренда
+    
+    theme_custom
+}
+
+# Построение графика
+ggpairs(
+  brain_data_clear, 
+  progress = FALSE,
+  upper = list(continuous = color_correlation_fixed), # Подсветка корреляций
+  lower = list(continuous = golden_smooth)           # Золотистая линия тренда
+)+
+  theme(
+    axis.text.x = element_text(size = 8),  # Уменьшение текста по оси X
+    axis.text.y = element_text(size = 8)   # Уменьшение текста по оси Y
+  )
+```
+
+```{r cor,  message=FALSE}
+
+cor_data <- brain_data %>% 
+  select( where(is.numeric) & !c(ends_with("min"), ends_with("max")) ) %>%
+  cor(use = "pairwise.complete.obs") 
+  
+corrplot(cor_data, method = 'number', type = 'lower', diag = FALSE)
+
+network_plot(cor_data, min_cor = .1)
+
+```
+```{r}
+brain_data_clear_scaled <- brain_data_clear %>% scale()
+head(brain_data_clear_scaled)
+```
+
+Визуализируем с помощью расширения к ggplot - ggfortify(). В чем
+проблема такого графика?
+
+```{r}
+library(ggfortify) 
+
+autoplot(brain_data_clear_scaled)
+```
+```{r}
+brain_data_3_scaled <- brain_data %>% filter(Year == "2007") %>% select(F10.7,EMS, Sunspots) %>% scale()
+head(brain_data_3_scaled)
+```
+
+Визуализируем с помощью расширения к ggplot - ggfortify(). В чем
+проблема такого графика?
+
+```{r fig.height = 10}
+library(ggfortify) 
+
+autoplot(brain_data_3_scaled)
+```
+```{r fig.height = 20, fig.width = 10}
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+library(cowplot)
+
+# Вычисляем общий диапазон Y для всех годов
+global_range <- brain_data %>%
+  select(F10.7, EMS, Sunspots) %>%
+  scale() %>%
+  range(na.rm = TRUE)
+
+# Функция для построения графиков с общим шкалированием Y
+plot_by_year <- function(year_data, year) {
+  year_scaled <- year_data %>%
+    select(F10.7, EMS, Sunspots) %>%
+    scale()  # Масштабируем данные
+  
+  autoplot(year_scaled) +
+    labs(title = paste("Год:", year), x = NULL, y = NULL) +
+    theme_minimal() +
+    coord_cartesian(ylim = global_range) +  # Фиксируем общий диапазон Y
+    theme(
+      plot.title = element_text(hjust = 0.5, size = 14),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank()
+    )
+}
+?scale
+# Создаем графики по годам
+year_plots <- brain_data %>%
+  group_by(Year) %>%
+  group_split() %>%
+  purrr::map(~ {
+    plot_by_year(.x, unique(.x$Year))
+  })
+
+# Вывод графиков вертикально
+cowplot::plot_grid(plotlist = year_plots, ncol = 1, align = "v", rel_heights = rep(1, length(year_plots)))
+
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(forecast) # Для работы с временными рядами
+library(lubridate)
+
+# Вычисляем тренд Sunspots
+sunspots_trend <- brain_data %>%
+  filter(Date >= as.Date("2007-01-01")) %>%
+  select(Date, Sunspots) %>%
+  arrange(Date) %>%
+  mutate(Trend = stats::filter(Sunspots, rep(1/365, 365), sides = 2)) %>%
+  select(Date, Trend) %>%
+  drop_na()
+
+# Вычисляем тренд EMS
+ems_trend <- brain_data %>%
+  filter(Date >= as.Date("2007-01-01")) %>%
+  pull(EMS) %>%
+  ts(start = 2007, frequency = 365) %>%
+  stl(s.window = "periodic") %>%
+  .$time.series %>%
+  as.data.frame() %>%
+  mutate(Date = seq.Date(from = as.Date("2007-01-01"), by = "day", length.out = nrow(.))) %>%
+  select(Date, Trend = trend)
+
+# Нормализация трендов
+combined_trends <- bind_rows(
+  sunspots_trend %>% mutate(Variable = "Sunspots"),
+  ems_trend %>% mutate(Variable = "EMS")
+) %>%
+  group_by(Variable) %>%
+  mutate(NormalizedTrend = (Trend - min(Trend, na.rm = TRUE)) / 
+                            (max(Trend, na.rm = TRUE) - min(Trend, na.rm = TRUE))) %>%
+  ungroup()
+
+# Построение графика
+ggplot(combined_trends, aes(x = Date, y = NormalizedTrend, color = Variable)) +
+  geom_line(size = 1) +
+  scale_color_manual(values = c("Sunspots" = "royalblue2", "EMS" = "orangered4")) +
+  theme_minimal() +
+  labs(title = "Сравнение нормализованных трендов Sunspots и EMS",
+       x = "Дата", y = "Нормализованный тренд",
+       color = "Параметр") +
+  theme(legend.position = "top")
+```
+```{r}
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+# Фильтрация данных и выбор необходимых переменных
+combined_data <- brain_data %>%
+  select(Date, Sunspots, EMS) %>%
+  pivot_longer(cols = c(Sunspots, EMS), names_to = "Variable", values_to = "Value")
+
+# Построение точечного графика
+ggplot(combined_data, aes(x = Date, y = Value, color = Variable)) +
+  geom_point(size = 1, alpha = 0.6) +  # Точки с небольшой прозрачностью
+  scale_color_manual(values = c("Sunspots" = "royalblue2", "EMS" = "orangered4")) +
+  theme_custom +
+  labs(
+    title = "Сравнение значений Sunspots и EMS (точечно)",
+    x = "Дата",
+    y = "Значение",
+    color = "Параметр"
+  ) +
+  theme(legend.position = "top")
+
+```
+
+```{r}
+# Создаем новый датасет с годом и интересующими параметрами
+brain_data_filtered <- brain_data %>%
+  select(Year, F10.7, EMS, Sunspots) %>% # Оставляем только нужные столбцы
+  na.omit() # Убираем строки с NA
+
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+# Создаем новый датасет с годом и интересующими параметрами
+brain_data_filtered <- brain_data %>%
+  select(Year, F10.7, EMS, Sunspots) %>% # Оставляем только нужные столбцы
+  na.omit() %>% # Убираем строки с NA
+  mutate(Row = row_number()) # Добавляем индекс строк для упрощения работы с y
+
+# Преобразуем данные в длинный формат для heatmap
+brain_data_long <- brain_data_filtered %>%
+  pivot_longer(cols = c(F10.7, EMS, Sunspots), names_to = "Columns", values_to = "value")
+
+# Построение тепловой карты с метками годов сбоку
+ggplot(brain_data_long, aes(x = Columns, y = Row, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "white", mid = "blue", high = "darkblue", midpoint = 0) +
+  scale_y_continuous(
+    breaks = brain_data_filtered$Row,  # Добавляем метки на ось y
+    labels = brain_data_filtered$Year # Метки годов для строк
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 8), # Уменьшаем размер меток на оси Y
+    axis.ticks.y = element_blank()        # Убираем линии меток на оси Y
+  ) +
+  labs(x = "Columns", y = "Year") # Переименовываем оси
+
+```
+
+```{r}
+library(pheatmap)
+```
+
+Визуализируем heat map и tree map одновременно:
+
+```{r}
+brain_data_clear_dist <- dist(brain_data_3_scaled)
+
+
+pheatmap(brain_data_clear_scaled, 
+         show_rownames = FALSE, 
+         clustering_distance_rows = brain_data_3_dist,
+         clustering_method = "ward.D2", 
+         cutree_rows = 5,
+         cutree_cols = length(colnames(brain_data_3_scaled)),
+         angle_col = 45, 
+         main = "Dendrograms for clustering rows and columns with heatmap")
+```
+
+```{r}
+# Загрузим библиотеки
+library(FactoMineR)
+```
+
+Делаем PCA:
+
+
+```{r}
+brain_data_full.pca <- prcomp(brain_data_clear, 
+                        scale = T) # Не забываем про стандартизацию!
+```
+
+Оценим результат.
+
+```{r}
+summary(brain_data_full.pca)
+```
+
+Смотрим на "Cumulative Proportion". У нас в данных первые 4 главные
+компоненты объясняют 74% вариации данных. Посмотрим это на графике:
+
+```{r}
+fviz_eig(brain_data_full.pca, addlabels = T, ylim = c(0, 40))
+```
+
+На самом деле, это не слишком хороший результат, т.к. следующая конвенционально важная отметка в 90% достигается уже только на PC7. Бывают данные, которые не слишком хороши для PCA, но нельзя сказать, что у нас всё ужасно. Первые две компоненты объясняют 50% дисперсии. Вокруг них и будет сосредоточен основной анализ.
+
+### Анализ переменных по PCA
+
+Мы можем начать анализировать, как наши переменные связаны с PC1 и PC2.
+Посмотрим на график ниже:
+
+```{r}
+fviz_pca_var(brain_data_full.pca, col.var = "contrib")
+```
+
+Подсказка для интерпретации графика
+[здесь](https://bioinfo4all.files.wordpress.com/2021/01/principal-component-analysis-pca-1.png?w=2048).
+
+-   Стрелки - средние значения переменных для PC1 (Dim1) и PC2 (Dim2). В скобках указаны проценты объяснённой дисперсии каждой из двух компонент. На каждую последующую PC всегда приходится всё меньше и меньше разброса в данных.
+-   Цвет и близость к кругу - насколько та или иная переменная вносит вклад в анализируемые главные компоненты
+-   Направление - относительная мера близости переменных. Если стрелки расходятся в прямо-противоположные стороны, то переменные отрицательно скоррелированы внутри представленных главных компонент.
+
+В данных мы видим три группы переменных:
+
+-   age, pregnant.
+
+-   mass, triceps, pedigree
+
+-   остальные
+
+    Теперь оценим PC1 и PC2 в целом. Что "схватили" первая и вторая
+    компоненты? какой разброс мы видим по осям x и y?
+
+...
+
+Мы также можем отдельно посмотреть на, например, топ 3 самых важных
+переменных с т.зр. их вариации в PC1 и PC2:
+
+```{r}
+fviz_pca_var(brain_data_full.pca, 
+             select.var = list(contrib = 3), # Задаём число здесь 
+             col.var = "contrib")
+```
+
+    У самих по себе главных компонент есть одна очень большая проблема с точки зрения их анализа. Какая?
+
+Посмотрим из чего состоят 1, 2 и 3 главные компоненты:
+
+```{r}
+fviz_contrib(brain_data_full.pca, choice = "var", axes = 1, top = 24) # 1
+fviz_contrib(brain_data_full.pca, choice = "var", axes = 2, top = 24) # 2
+fviz_contrib(brain_data_full.pca, choice = "var", axes = 3, top = 24) # 3
+```
+
+### Анализ наблюдений по PCA
+
+Помимо переменных мы можем анализировать также и наблюдения, искать в них кластеры и корреляцию с переменными в целом. Для этого используется biplot. Bi потому, что на нем одновременно изображены и точки, и переменные
+
+```{r}
+# Загрузим библиотеку
+library(ggbiplot) # devtools::install_github("vqv/ggbiplot")
+```
+
+Сделаем biplot:
+
+```{r}
+ggbiplot(brain_data_full.pca, 
+         scale=0, alpha = 0.1) + 
+  theme_minimal()
+```
+
+Более осмысленным biplot становится при использовании кластерных
+методов, с помощью которых мы можем разделить наблюдения на группы.
+Посмотрим, наблюдается ли разница между группами по diabetes:
+
+
+
+
+```{r point, message=FALSE}
+
+brain_data %>% 
+  ggplot(aes(Sunspots, F10.7))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+brain_data %>% 
+  ggplot(aes(Dst_mean, Ap_mean))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+brain_data %>% 
+  drop_na() %>% 
+  ggplot(aes(Temp_mean, Pressure))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom
+
+```
+
+- Индекс **F10.7** и количество **солнечных пятен** показывают высокую корреляцию (r = 0.92), поскольку оба показателя отражают солнечную активность, но измеряются разными методами.  
+- Среднесуточные индексы **Ap** и **Dst** также заметно коррелируют (r = -0.70), так как оба характеризуют изменения в геомагнитном поле Земли под воздействием солнечного ветра.  
+- Также ожидаемо выявлена отрицательная корреляция между средней температурой и давлением за день (r = -0.73).  
+
+Для дальнейшего анализа из каждой пары переменных оставим одну:  
+1. **Количество солнечных пятен** — этот показатель имеет полный набор данных и обладает большей вариативностью.  
+2. **Индекс Dst** — напрямую связан с влиянием солнечной активности на магнитосферу.  
+3. **Температура** — обеспечивает полный охват данных за весь период исследования и обладает более высокой вариативностью.  
+
+
+# Циклы солнечной активности
+
+```{r cycle}
+
+brain_data %>% 
+  select(!c(Pressure, F10.7, Ap_mean)) %>% 
+  ggplot(aes(Date, Sunspots))+
+  geom_line(alpha = 0.3, colour = "royalblue2")+
+  geom_smooth(method = "gam", formula = y ~ s(x, k = 10),  se = FALSE,
+              colour = "orangered4", linewidth = 2) +
+  geom_vline(xintercept = as.Date("2009-01-01"), 
+             colour = "orangered", linewidth = 1, linetype = "dashed")+
+  geom_vline(xintercept = as.Date("2019-12-31"), 
+             colour = "orangered", linewidth = 1, linetype = "dashed")+
+  scale_x_date(date_breaks = "1 year", date_labels = "%Y")+
+  theme_bw()
+
+```
+
+Количество солнечных пятен тесно связано с циклами солнечной активности, что подтверждено на графике. Для дальнейшего анализа выбран период 2009-2019гг., который полностью охватывает 24-й цикл солнечной активности.
+
+# Декомпозиция данных
+
+```{r decompose, fig.height=8}
+
+brain_data %>%
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
+  autoplot() + theme_custom
+
+brain_data %>% 
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
+  ma(90) %>% autoplot() + theme_custom
+
+brain_data %>% 
+  pull(Temp_mean) %>% ts(start = 2009, frequency = 365) %>%
+  stl(s.window = "periodic") %>% autoplot() + 
+  theme_custom
+
+```
+
+Декомпозиция позволяет выявить тренды и сезонную цикличность:
+
+```{r check, fig.width=12, message=FALSE, warning=FALSE}
+
+##Линейный тренд EMS
+brain_data %>% 
+  # filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  ggplot(aes(Date, EMS))+
+  geom_line(alpha = 0.3, colour = "royalblue2")+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", size = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  theme_custom + ggtitle("Линейный тренд вызова скорой")
+
+##Сезонные тренды по температуре, ветру, осадкам
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(Wind) %>% ts(start = 2009, frequency = 365) %>%
+  ma(183) %>%
+  autoplot() + theme_custom + ggtitle("Цикличность ветра",  subtitle = "Полугодовое скользящее среднее")
+
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  pull(H2O) %>% ts(start = 2009, frequency = 365) %>%
+  ma(183) %>%
+  autoplot() + theme_custom + ggtitle("Цикличность осадков", subtitle = "Полугодовое скользящее среднее")
+
+brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  ggplot(aes(x = Date))+
+  geom_line(aes(y = Temp_mean %>% ma(30)), alpha = 0.3, colour = "black", size = 3)+
+  geom_line(aes(y = Temp_min %>% ma(30)), alpha = 0.3, colour = "royalblue2", size = 2)+
+  geom_line(aes(y = Temp_max %>% ma(30)), alpha = 0.3, colour = "orangered2", size = 2)+
+  scale_y_continuous(name = "Temp")+
+  theme_custom + ggtitle("Цикличность температуры", subtitle = "Месячное скользящее среднее")
+
+# Сложности с индексом Dst
+ggarrange(
+  
+  brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2021-12-31"))) %>%
+  pull(Sunspots) %>% ts(start = 2009, frequency = 365) %>%
+  ma(90) %>%
+  autoplot() + theme_custom + ggtitle("Солнечные пятна", subtitle = "Квартальное скользящее среднее"),
+  
+  brain_data %>%
+  mutate(Dst_var = Dst_max - Dst_min) %>%
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2021-12-31"))) %>%
+  pull(Dst_var) %>% ts(start = 2009, frequency = 365) %>%
+  ma(365) %>%
+  autoplot() + theme_custom + ggtitle("Индекс Dst", subtitle = "Годовое скользящее среднее")
+
+  )
+
+
+
+```
+
+- Для данных по вызову скорой наблюдается линейный тренд во времени. Для поиска связи вызовов и солнечной активности желательно внести поправку на это.
+- Климатические данные (температура, осадки и ветер) имеют четкую цикличность
+- Индекс Dst_mean не имеет четких трендов и циклов. Индекс Dst_var (амплитуда колебаний индекса Dst за день) при сглаживании данных сопоставим по тренду с количеством солнечных пятен.
+
+# Установление связи
+
+```{r cor2,  message=FALSE}
+
+cor_data2 <- brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  transmute(EMS, Wind, Temp_mean, H2O, Dst_mean,
+            Dst_var = Dst_max - Dst_min, Sunspots ) %>%
+ cor(use = "pairwise.complete.obs") 
+  
+corrplot(cor_data2, method = 'number', type = 'lower', diag = FALSE)
+
+network_plot(cor_data2, min_cor = 0.1)
+
+```
+
+Оставив только период равный 24ому циклу солнечной активности и отбросив скоррелированные переменные, можно заметить
+наличие связи количества солнечных пятен с суточной амплитудой индекса Dst, а также количеством вызовов скорой помощи.
+**Однако, данные по индексу Dst и количеству вызовов скорой помощи требуют дальнейшей проработки.**
+
+
+# Обновление данных
+
+```{r dst, fig.height=8}
+
+# Индекс Dst на каждый час
+WDC_Kyoto_Dst <- read_fwf("../data/raw/WDC_Kyoto.dat",  
+                          fwf_widths( c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4) ), 
+                          show_col_types = FALSE) %>% 
+  transmute(
+    Date = as.Date(paste0(X9,X2,"-",X3,"-",X5)),
+    across(X11:X34) %>%  set_names(paste0("H_", seq(1, 24) ))
+    ) %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31")))
+
+
+# Dst через PCA
+scaled_Dst <- WDC_Kyoto_Dst %>% select(!Date) %>% scale()
+Dst_pca <- prcomp(scaled_Dst) 
+
+summary(Dst_pca)
+
+fviz_eig(Dst_pca, addlabels = T, 
+         xlab = "", ylab = "Процент дисперсии",
+         ggtheme = theme_custom,
+         main = "Объясненная дисперсия компонентов PCA")
+
+
+# Обновление датасета
+brain_data2 <- brain_data %>% 
+  filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>% 
+  transmute(Date, Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
+            EMS, Wind, Temp_mean, H2O, Sunspots, Sud_Imp, Sud_Storm,
+            Dst_mean, Dst_var = Dst_max - Dst_min, Dst_group = factor(case_when( 
+              Dst_min < -150 ~ "level_5", Dst_min < -100 ~ "level_4",  
+              Dst_min < -50 ~ "level_3",  Dst_min < -20 ~ "level_2",       
+              TRUE ~ "level_1"), 
+              levels = c("level_1", "level_2", "level_3", "level_4", "level_5"), 
+              ordered = TRUE)
+            ) %>% 
+  bind_cols( as.tibble(Dst_pca$x) %>% select(PC1, PC2) )
+
+
+##Локальное храненение данных 
+write_csv(brain_data2, "../data/raw/brain_data2.csv") 
+
+```
+
+
+# Визуализация ассоциаций
+
+```{r vis, fig.height=12}
+
+#EMS/Sunspots сезонность
+
+ggarrange(
+brain_data2 %>%  
+  group_by(Year, Month) %>% 
+  summarise(EMS_month = sum(EMS, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(x = Month, y = Year, fill = EMS_month)) +
+  geom_tile(colour = "black") + 
+  scale_fill_gradient(low = "green", high = "red") + 
+  theme_custom, 
+
+brain_data2 %>%  
+  group_by(Year, Month) %>% 
+  summarise(Sunspots_month = sum(Sunspots, na.rm = TRUE), .groups = "drop") %>% 
+  ggplot(aes(x = Month, y = Year, fill = Sunspots_month)) +
+  geom_tile(colour = "black") + 
+  scale_fill_gradient(low = "green", high = "red") + 
+  theme_custom
+)
+
+#Dst ~ Sunspots
+brain_data2 %>% group_by(Dst_group) %>% count()
+
+brain_data2 %>%
+  filter(Dst_group != "level_5") %>% 
+  ggplot(aes(Dst_group, Sunspots))+
+  geom_jitter(alpha = 0.5)+
+  geom_boxplot(alpha = 0.5, outliers = FALSE, fill = "goldenrod2", linewidth = 1)+
+  theme_custom
+
+
+#Корреляция
+cor_data3 <- brain_data2 %>%  
+  select(where(is.numeric)) %>% 
+  cor(use = "pairwise.complete.obs") 
+  
+corrplot(cor_data3, method = 'number', type = 'lower', diag = FALSE)
+network_plot(cor_data3, min_cor = 0.1)
+
+```
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+
+# Эмпирическая плотность
+ems_density <- density(brain_data$EMS, na.rm = TRUE)
+
+# Параметры для биномиального и пуассоновского распределений
+n_binom <- 40  # Максимальное значение для биномиального распределения
+p_binom <- mean(brain_data$EMS, na.rm = TRUE) / n_binom  # Вероятность успеха для биномиального
+lambda_pois <- mean(brain_data$EMS, na.rm = TRUE)  # Среднее для пуассоновского распределения
+
+# Биномиальная плотность
+binom_vals <- 0:n_binom
+binom_density <- dbinom(binom_vals, size = n_binom, prob = p_binom)
+
+# Пуассоновская плотность
+pois_vals <- 0:max(brain_data$EMS, na.rm = TRUE)
+pois_density <- dpois(pois_vals, lambda = lambda_pois)
+
+# Нормализация для биномиального распределения
+binom_density_scaled <- binom_density / sum(binom_density) * diff(range(ems_density$x)) * length(ems_density$x)
+
+# Нормализация для пуассоновского распределения
+pois_density_scaled <- pois_density / sum(pois_density) * diff(range(ems_density$x)) * length(ems_density$x)
+
+# Максимальная высота для оси Y
+max_y <- max(c(binom_density_scaled, pois_density_scaled, ems_density$y))
+
+# График с биномиальным распределением
+binom_plot <- ggplot() +
+  geom_line(aes(x = ems_density$x, y = ems_density$y), color = "black", size = 1) +
+  geom_bar(aes(x = binom_vals, y = binom_density_scaled), stat = "identity", fill = "blue", alpha = 0.5, width = 0.8) +
+  labs(
+    title = "Эмпирическая плотность EMS и биномиальное распределение",
+    x = "EMS",
+    y = "Плотность"
+  ) +
+  xlim(0, max(brain_data$EMS, na.rm = TRUE)) +
+  ylim(0, max_y) +
+  theme_minimal()
+
+# График с пуассоновским распределением
+pois_plot <- ggplot() +
+  geom_line(aes(x = ems_density$x, y = ems_density$y), color = "black", size = 1) +
+  geom_bar(aes(x = pois_vals, y = pois_density_scaled), stat = "identity", fill = "red", alpha = 0.5, width = 0.8) +
+  labs(
+    title = "Эмпирическая плотность EMS и пуассоновское распределение",
+    x = "EMS",
+    y = "Плотность"
+  ) +
+  xlim(0, max(brain_data$EMS, na.rm = TRUE)) +
+  ylim(0, max_y) +
+  theme_minimal()
+
+# Вывод графиков
+grid.arrange(binom_plot, pois_plot, ncol = 2)
+
+
+
+
+```
+
+
+```{r, message=FALSE}
+library(ggplot2)
+
+# Эмпирическая плотность
+ems_density <- density(brain_data$EMS, na.rm = TRUE)
+
+# Параметры для биномиального и пуассоновского распределений
+n_binom <- 40  # Максимальное значение для биномиального распределения
+p_binom <- mean(brain_data$EMS, na.rm = TRUE) / n_binom  # Вероятность успеха для биномиального
+lambda_pois <- mean(brain_data$EMS, na.rm = TRUE)  # Среднее для пуассоновского распределения
+
+# Значения для оси X
+x_vals <- seq(0, max(brain_data$EMS, na.rm = TRUE), length.out = 500)
+
+# Теоретические плотности (интерполированные)
+binom_density <- dbinom(0:n_binom, size = n_binom, prob = p_binom)
+pois_density <- dpois(0:max(brain_data$EMS, na.rm = TRUE), lambda = lambda_pois)
+
+# Интерполяция для сглаживания
+binom_density_smooth <- spline(0:n_binom, binom_density, xout = x_vals)$y
+pois_density_smooth <- spline(0:max(brain_data$EMS, na.rm = TRUE), pois_density, xout = x_vals)$y
+
+# Построение графика
+ggplot() +
+  # Эмпирическая плотность
+  geom_line(aes(x = ems_density$x, y = ems_density$y), color = "black", size = 1, linetype = "solid") +
+  # Сглаженное биномиальное распределение
+  geom_line(aes(x = x_vals, y = binom_density_smooth), color = "blue", size = 1, linetype = "dashed") +
+  # Сглаженное пуассоновское распределение
+  geom_line(aes(x = x_vals, y = pois_density_smooth), color = "red", size = 1, linetype = "dotted") +
+  labs(
+    title = "Плотность EMS с теоретическими распределениями",
+    x = "EMS",
+    y = "Плотность"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 14),
+    legend.position = "top"
+  )
+
+```
+```{r}
+library(ggplot2)
+
+# Эмпирическая плотность
+ems_density <- density(brain_data$EMS, na.rm = TRUE)
+
+# Параметры для биномиального и пуассоновского распределений
+n_binom <- 40  # Максимальное значение для биномиального распределения
+p_binom <- mean(brain_data$EMS, na.rm = TRUE) / n_binom  # Вероятность успеха для биномиального
+lambda_pois <- mean(brain_data$EMS, na.rm = TRUE)  # Среднее для пуассоновского распределения
+
+# Значения для оси X
+x_vals <- seq(0, max(brain_data$EMS, na.rm = TRUE), length.out = 500)
+
+# Теоретические плотности
+binom_density <- dbinom(round(x_vals), size = n_binom, prob = p_binom)  # Округляем значения
+pois_density <- dpois(round(x_vals), lambda = lambda_pois)
+
+# Построение графика
+ggplot() +
+  # Эмпирическая плотность
+  geom_line(aes(x = ems_density$x, y = ems_density$y), color = "black", size = 1, linetype = "solid") +
+  # Биномиальное распределение
+  geom_line(aes(x = x_vals, y = binom_density), color = "blue", size = 1, linetype = "dashed") +
+  # Пуассоновское распределение
+  geom_line(aes(x = x_vals, y = pois_density), color = "red", size = 1, linetype = "dotted") +
+  labs(
+    title = "Плотность EMS с теоретическими распределениями",
+    x = "EMS",
+    y = "Плотность"
+  ) +
+  theme_minimal() +
+  theme(
+    text = element_text(size = 14),
+    legend.position = "top"
+  ) +
+  scale_y_continuous(limits = c(0, max(ems_density$y, na.rm = TRUE)))
+
+```
+
+```{r}
+brain_data <- brain_data %>%
+  mutate(EMS_lag7 = lag(EMS, 7)) %>%
+#  mutate(EMS_lag365 = lag(EMS, 365)) %>%
+#  filter(!is.na(EMS_lag365)) %>%
+  filter(!is.na(EMS_lag7))
+
+```
+
+
+
+```{r}
+model_f <- glm(EMS ~ Ap_mean + Temp_mean +  Pressure, data = brain_data, family = poisson)
+
+summary(model_f)
+plot(model_f)
+crPlots(model_f)
+
+```
+```{r}
+model_f <- glm(EMS ~ 
+                 Wind + 
+                 Temp_mean + 
+                 Sunspots + 
+                 Date + 
+                 Pressure, 
+               data = brain_data, family = poisson)
+
+summary(model_f)
+plot(model_f)
+crPlots(model_f)
+
+```
+```{r}
+model_poisson <- glm(EMS ~ 
+                 EMS_lag7 +
+#                 EMS_lag365 +
+                 Wind + 
+                 Temp_mean + 
+                 Sunspots + 
+                 Date + 
+                 Pressure, 
+               data = brain_data, family = poisson)
+
+summary(model_poisson)
+plot(model_poisson)
+crPlots(model_poisson)
+
+```
+```{r}
+#Пуассон
+tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
+  mutate(
+    model = "Poisson",  
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_data
+
+#Пуассон с коррекцией гетероскедастичности
+bind_cols(
+  tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
+  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")
+  ) %>%
+  mutate(
+    model = "Poisson_vcovHC", 
+    EMS_effect = ifelse(
+    term != "(Intercept)",
+    paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
+    signif((exp(estimate)), 3))) -> Poisson_vcovHC_data
+
+#Пуассон с коррекцией гетероскедастичности и автокорреляции
+residuals(model_poisson, type = "response") %>% acf()
+
+```
+
+
+
+```{r}
+model_f <- glm(EMS ~ 
+                 Wind + 
+                 DayType +
+                 EMS_lag7 +
+                 Temp_mean + 
+                 Sunspots + 
+                 Date + 
+                 Pressure, 
+               data = brain_data, family = poisson)
+
+summary(model_f)
+plot(model_f)
+crPlots(model_f)
+```
+#lags
+```{r}
+library(dplyr)
+library(car)
+
+# Создание лагов для Sunspot_n
+lags <- 1:5  # Лаги от 1 до 5 дней
+for (lag in lags) {
+  brain_data <- brain_data %>%
+    mutate(!!paste0("Sunspot_n_lag", lag) := lag(Sunspot_n, n = lag))
+}
+
+# Проверка структуры данных с лагами
+head(brain_data)
+
+# Построение моделей с разными лагами Sunspot_n
+lag_models <- lags %>%
+  set_names(paste0("Lag_", lags)) %>%
+  map(~ glm(
+    formula = as.formula(paste("EMS ~ Wind + Temp_mean +", paste0("Sunspot_n_lag", .x), "+ Date + Pressure_mean")),
+    data = brain_data,
+    family = poisson
+  ))
+
+# Вывод сводок для всех моделей
+lag_summaries <- map(lag_models, summary)
+
+
+```
+```{r}
+
+
+# Извлечение AIC и Residual Deviance из моделей с лагами
+lag_metrics <- lag_models %>%
+  map_dfr(~ glance(.x) %>%
+            select(AIC, `Residual Deviance` = deviance), .id = "Lag")
+
+# Оформление таблицы
+lag_metrics <- lag_metrics %>%
+  mutate(
+    Lag = paste0("Lag_", gsub("Lag_", "", Lag)),  # Упрощаем названия лагов
+    AIC = round(AIC, 2),
+    `Residual Deviance` = round(`Residual Deviance`, 2)
+  )
+
+# Вывод таблицы
+kable(lag_metrics, format = "markdown", align = "lcc")
+
+
+```
+
+```{r}
+lag_plots <- map2(lag_models, names(lag_models), ~ {
+  plot(.x, main = paste("Диагностический график для модели с", .y))
+})
+
+```
+
+```{r}
+
+
+# Чтение данных из файла
+file_path <- "data/raw/database_2024-11-09.xlsx"
+data_new <- read_excel(file_path)
+
+# Переименование нужных столбцов
+data_clean <- data_new %>%
+  rename(
+    Date = `Дата`,
+#    EMS_all_25_plus = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`,
+    EMS_male_25_44 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`,
+    EMS_male_45_54 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`,
+    EMS_male_55_plus = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`,
+    EMS_female_25_44 = `Количество вызовов СМП с диагнозом ОНМК у женщин 25-44 лет`,
+    EMS_female_45_54 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`,
+    EMS_female_55_plus = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`
+  ) %>%
+  select(Date, contains("EMS"))
+
+
+# Преобразование дат в нужный формат
+data_clean <- data_clean %>%
+  mutate(Date = as.Date(Date, format = "%d.%m.%Y"))
+
+#brain_data <- brain_data %>%
+ # mutate(Date = as.Date(Date))  # Преобразуем даты в основном датасете
+
+# Объединение данных по дате
+brain_data_updated <- brain_data %>%
+  left_join(data_clean, by = "Date")
+library(dplyr)
+
+# Добавляем новые колонки в датасет без "total" в названии
+brain_data_updated <- brain_data_updated %>%
+  mutate(
+    EMS_male = EMS_male_25_44 + EMS_male_45_54 + EMS_male_55_plus,
+    EMS_female = EMS_female_25_44 + EMS_female_45_54 + EMS_female_55_plus,
+    EMS_25_44 = EMS_male_25_44 + EMS_female_25_44,
+    EMS_45_54 = EMS_male_45_54 + EMS_female_45_54,
+    EMS_55_plus = EMS_male_55_plus + EMS_female_55_plus
+  )
+
+
+# Просмотр первых строк обновленного датасета
+head(brain_data_updated)
+
+```
+```{r}
+#library(dplyr)
+#library(purrr)
+#library(car)
+# Убедимся, что переменные с EMS корректно выбраны
+ems_columns <- brain_data_updated %>%
+  select(contains("EMS")) %>%
+  colnames()
+
+# Формируем модели
+models <- ems_columns %>%
+  set_names() %>%
+  map(~ glm(
+    formula = as.formula(paste(.x, "~ Wind + Temp_mean + Sunspot_n + Date + Pressure_mean")),
+    data = brain_data_updated,
+    family = poisson
+  ))
+
+# Результаты для каждой модели
+model_summaries <- map(models, summary)
+
+
+# Создаём графики с названиями переменных
+model_plots <- map2(models, names(models), ~ {
+  plot(.x, main = paste("Диагностический график для модели:", .y))
+})
+
+cr_plots <- map2(models, names(models), ~ {
+  crPlots(.x, main = paste("C+R график для модели:", .y))
+})
+
+
+```
+
+```{r}
+print(model_summaries)
+```
+
+```{r}
+
+
+
+# Извлечение метрик для каждой модели
+deviance_table <- models %>%
+  map_dfr(~ glance(.x) %>% select(null.deviance, deviance), .id = "Model") %>%
+  rename(
+    `Null Deviance` = null.deviance,
+    `Residual Deviance` = deviance
+  )
+
+# Округление для читаемости
+deviance_table <- deviance_table %>%
+  mutate(
+    `Null Deviance` = round(`Null Deviance`, 2),
+    `Residual Deviance` = round(`Residual Deviance`, 2)
+  )
+
+# Вывод таблицы
+kable(deviance_table, format = "markdown", align = "lcc")
+
+```
+```{r}
+
+
+# Извлечение AIC для каждой модели
+aic_table <- models %>%
+  map_dfr(~ data.frame(AIC = AIC(.x)), .id = "Model")
+
+# Вывод таблицы
+kable(aic_table, format = "markdown", align = "l")
+
+```
+
+
+```{r}
+
+# Извлекаем результаты из моделей
+results_table <- models %>%
+  map_dfr(tidy, .id = "Model") %>%
+  select(Model, term, estimate, std.error, statistic, p.value) %>%
+  mutate(
+    estimate = round(estimate, 4),
+    std.error = round(std.error, 4),
+    statistic = round(statistic, 4),
+    p.value = signif(p.value, 4)
+  )
+
+# Приведение таблицы в нужный формат
+formatted_table <- results_table %>%
+  pivot_longer(
+    cols = c(estimate, std.error, statistic, p.value),  # Выбираем метрики
+    names_to = "Metric",                                # Создаем колонку с названиями метрик
+    values_to = "Value"                                 # Создаем колонку со значениями метрик
+  ) %>%
+  pivot_wider(
+    names_from = Model,   # Модели остаются в столбцах
+    values_from = Value   # Значения метрик распределяются по моделям
+  ) %>%
+  arrange(term, Metric)   # Упорядочиваем по переменной и метрике
+
+# Вывод таблицы
+kable(formatted_table, format = "markdown", align = "l")
+
+
+```
+```{r}
+
+
+# Оригинальная модель m0
+m0 <- glm(EMS ~ Wind + Temp_mean + Sunspot_n + Date + Pressure_mean,
+          data = brain_data_updated,
+          family = poisson)
+
+# Сравнение всех моделей с m0
+anova_results <- map_dfr(
+  models,
+  ~ {
+    # Выполняем anova между m0 и текущей моделью
+    anova_res <- anova(m0, .x, test = "LRT")
+    
+    # Диагностика результата anova
+    print(anova_res)
+    
+    # Извлечение нужных данных из anova
+    data.frame(
+      Model = names(.x),
+      LRT = as.numeric(anova_res$`LR stat`[2]),
+      P_value = as.numeric(anova_res$`Pr(>Chi)`[2]),
+      Residual_Deviance = as.numeric(anova_res$Deviance[2])
+    )
+  },
+  .id = "Model_Name"
+)
+
+# Вывод таблицы
+kable(anova_results, format = "markdown", align = "lccc")
+
+
+```
+
