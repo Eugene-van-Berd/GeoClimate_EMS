@@ -253,3 +253,36 @@ brain_data %>%
   theme_custom
 
 ```
+
+## Геомагнитные индексы
+
+```{r K-Kp, fig.width=12}
+
+brain_data %>% 
+  ggplot(aes(K_Sum, Kp_Sum))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.1, label.y.npc = "top", size = 5)+
+  theme_custom
+
+brain_data %>%
+  ggplot(aes(x = Date)) +
+  geom_line(aes(y = K_Sum, colour = "K_Sum"), linewidth = 1, alpha = 0.5) +
+  geom_line(aes(y = Kp_Sum, colour = "Kp_Sum"), linewidth = 1, alpha = 0.5) +
+  scale_color_manual(
+    name = "Индекс",
+    values = c("K_Sum" = "royalblue2", "Kp_Sum" = "orangered2"),
+    labels = c("K_Sum" = "Иркутск", "Kp_Sum" = "Мировой")
+  ) +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
+  theme_custom+
+  labs(
+    x = "Дата",
+    y = "К индекс"
+  )
+
+
+```
+
+
+

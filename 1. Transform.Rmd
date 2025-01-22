@@ -30,12 +30,16 @@ brain_data_raw <- read_excel("data/raw/database_2024-11-09.xlsx")
 # Индексы геомагнитной активности (Ap) из GFZ, Potsdam (2006 - 2022 года)
 GFZ_Potsdam_Ap <- read_csv("data/raw/GFZ_Potsdam.csv")  
 
+# Индексы геомагнитной активности (Kp) из GFZ, Potsdam (2006 - 2022 года)
+GFZ_Potsdam_Kp <- read_csv("data/raw/GFZ_Potsdam_Kp.csv") %>% select(Date, Kp_Sum)   
+
 # Индексы геомагнитной активности (Dst) из WDC, Kyoto (2006 - 2022 года)
 WDC_Kyoto_Dst <- read_fwf("data/raw/WDC_Kyoto.dat", fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4))) %>%
   rowwise() %>%
   transmute(
     Date = as.Date(paste0(X9, X2, "-", X3, "-", X5)),
     Dst_mean = X35,  #Среднее значение Dst за сутки
+    Dst_sum = sum(c_across(X11:X34), na.rm = TRUE), #Суммарное значение Dst за сутки
     Dst_max = max(c_across(X11:X34), na.rm = TRUE), #Максимальное значение Dst за сутки
     Dst_min = min(c_across(X11:X34), na.rm = TRUE), #Минимальное значение Dst за сутки
     across(X11:X34) %>%  set_names(paste0("H_", seq(1, 24))) #Индекс Dst на каждый час
@@ -83,6 +87,60 @@ Roshydromet_Irkutsk <- read_fwf("data/raw/Roshydromet_Irkutsk.dat", fwf_widths(c
 SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FALSE)  %>% 
   transmute(Date = as.Date(paste0(X1, "-", X2, "-", X3)), 
             Sunspots = as.numeric(X5))
+
+
+
+# Данные о локальном K индексе из магнитной обсерватории Иркутск (п. Патроны) 
+K_IRT <- tibble()
+
+for (i in (2006:2009)){
+  
+  link <- paste0("data/raw/K_IRT/IRT", i, ".txt")
+  
+  K_IRT %>% rbind(
+    read_table(link, show_col_types = FALSE, col_names = FALSE, skip = 2) %>% 
+      rowwise() %>% 
+      mutate(
+        across(everything(), as.character),
+        IRT = list(tail(na.omit(c_across(everything())), 11))
+      ) %>% 
+      ungroup() %>% 
+      unnest_wider(IRT,names_sep = "_") %>% 
+      select(starts_with("IRT")) %>% 
+      filter(IRT_1 != "IRT") %>% 
+      transmute(
+        Date = seq.Date(from = as.Date(paste(i, "-01-01", sep = "")), by = "day", length.out = n()), 
+        K_00 = IRT_3, K_03 = IRT_4, K_06 = IRT_5, K_09 = IRT_6,
+        K_12 = IRT_7, K_15 = IRT_8, K_18 = IRT_9, K_21 = IRT_10, 
+        K_Sum = IRT_11, across(starts_with("K"), as.numeric)
+      )) -> K_IRT
+}
+
+K_IRT <- K_IRT %>% 
+  mutate(across(starts_with("K"), ~ifelse(. == -1, NA, .)))
+
+for (i in (2012:2022)){
+  
+  link <- paste0("data/raw/K_IRT/IRT", i, ".txt")
+
+  K_IRT %>% rbind(
+  read_table(link, show_col_types = FALSE, col_names = FALSE, skip = 1) %>% 
+  distinct() %>% filter(!is.na(X5)) %>%
+  transmute(
+    Date = X1, 
+    Point = paste0("K_", substr(X2, 1, 2)), 
+    K_IRT = as.numeric(gsub(";", "", X4))
+  ) %>% 
+  pivot_wider(names_from = Point, values_from = K_IRT) %>% 
+  rowwise() %>% 
+  mutate(across(starts_with("K"), ~ifelse(. == -1, NA, .)),
+         K_Sum = sum(c_across(starts_with("K")), na.rm = FALSE)
+         )) -> K_IRT
+}
+  
+K_IRT <- 
+  K_IRT %>% select(Date, K_Sum) 
+
 ```
 
 ## Оценка исходных данных
@@ -108,7 +166,7 @@ fviz_eig(Dst_pca, addlabels = T,
 
 #Преобразование WDC_Kyoto_Dst
 Dst_transform <- WDC_Kyoto_Dst %>% 
-  transmute(Date, Dst_mean,
+  transmute(Date, Dst_sum, Dst_mean, 
             Dst_var = Dst_max - Dst_min, #Размах значений Dst за сутки
             Dst_level = factor(case_when(#Dst через факторную переменную
               Dst_min < -150 ~ "Severe", 
@@ -152,6 +210,8 @@ brain_data <- brain_data_raw %>%
   filter(!is.na(Date)) %>%
   left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
   left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
+  left_join(K_IRT, by = join_by(Date)) %>%  #Данные о локальном K индексе в Иркутске
+  left_join(GFZ_Potsdam_Kp, by = join_by(Date)) %>%  #Данные о индексе Kp
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
   left_join(Dst_transform, by = join_by(Date)) %>%  #Данные о индексе Dst 
   left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
@@ -190,6 +250,8 @@ brain_data_long <- brain_data_raw %>%
   filter(!is.na(Date)) %>%
   left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
   left_join(SIDC_SILSO, by = join_by(Date)) %>%   #Данные о солнечных пятнах
+  left_join(K_IRT, by = join_by(Date)) %>%  #Данные о локальном K индексе в Иркутске
+  left_join(GFZ_Potsdam_Kp, by = join_by(Date)) %>%  #Данные о индексе Kp
   left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %>%  #Данные о индексе Ap 
   left_join(Dst_transform, by = join_by(Date)) %>%  #Данные о индексе Dst 
   left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
