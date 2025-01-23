@@ -256,7 +256,7 @@ brain_data %>%
 
 ## Геомагнитные индексы
 
-```{r K-Kp, fig.width=12}
+```{r K_IRT, fig.width=15}
 
 brain_data %>% 
   ggplot(aes(K_Sum, Kp_Sum))+
@@ -267,16 +267,17 @@ brain_data %>%
 
 brain_data %>%
   ggplot(aes(x = Date)) +
-  geom_line(aes(y = K_Sum, colour = "K_Sum"), linewidth = 1, alpha = 0.5) +
-  geom_line(aes(y = Kp_Sum, colour = "Kp_Sum"), linewidth = 1, alpha = 0.5) +
+  geom_line(aes(y = K_Sum, colour = "K_Sum"), linewidth = 1, alpha = 0.8) +
+  geom_line(aes(y = Kp_Sum, colour = "Kp_Sum"), linewidth = 1, alpha = 0.4) +
   scale_color_manual(
-    name = "Индекс",
+    name = "K-индекс",
     values = c("K_Sum" = "royalblue2", "Kp_Sum" = "orangered2"),
-    labels = c("K_Sum" = "Иркутск", "Kp_Sum" = "Мировой")
+    labels = c("K_Sum" = "Иркутск", "Kp_Sum" = "Планетарный")
   ) +
   scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
   theme_custom+
   labs(
+    title = "Сравнение планетарного и локального K-индексов", 
     x = "Дата",
     y = "К индекс"
   )
