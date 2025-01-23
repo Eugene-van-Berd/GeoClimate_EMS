@@ -48,6 +48,9 @@ brain_data <- read_csv("data/raw/brain_data.csv") %>%
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
    mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
 
+work_days <- read_csv("./data/raw/working_calendar_all_years.csv",
+                      show_col_types = FALSE)
+
 ```
 
 ## Корреляция количественных переменных
@@ -316,37 +319,19 @@ brain_data %>%
   theme_custom
 
 ```
-```{r read}
-work_days <- read_csv("./data/raw/working_calendar_all_years.csv", show_col_types = FALSE)
 
-brain_data <- read_csv("./data/raw/brain_data.csv", show_col_types = FALSE) %>% 
-  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
-skimr::skim(brain_data)
+## Рабочие дни и сезоны ~ EMS
 
+### Тип дня 
 
-
-```
-
-# Проверка влияния рабчих дней и сезонов на количество вызовов скорой помощи
-
-```{r read}
-work_days <- read_csv("./data/raw/working_calendar_all_years.csv", show_col_types = FALSE)
-
-brain_data <- read_csv("./data/raw/brain_data.csv", show_col_types = FALSE) %>% 
-  mutate( across( starts_with("Sud"), ~ as.factor(.) ) )
-skimr::skim(brain_data)
-
-
-
-```
-## Тип дня и количество вызовов
 ```{r}
-brain_data <- work_days %>%
+
+brain_data_work <- work_days %>%
   rename(DayType = Type) %>%  # Переименование столбца Type в DayType
   inner_join(brain_data, by = "Date") %>%
   mutate(DayType = as.factor(DayType),
          DayType = dplyr::recode(DayType, "work" = "workday", "nowork" = "weekend")) 
-skimr::skim(brain_data)
+skimr::skim(brain_data_work)
 ```
 
 ```{r, fig.width=12}
@@ -359,7 +344,7 @@ daytype_colors <- c(
 )
 
 # Построение боксплота 
-ggplot(brain_data, aes(x = DayType, y = EMS, fill = DayType)) +
+ggplot(brain_data_work, aes(x = DayType, y = EMS, fill = DayType)) +
   geom_boxplot() +
   scale_fill_manual(values = daytype_colors) +
   labs(
@@ -373,8 +358,8 @@ ggplot(brain_data, aes(x = DayType, y = EMS, fill = DayType)) +
 ```
 ```{r}
 
-merged_data <- brain_data %>%
-  filter(DayType %in% c("workday", "weekend")) %>%  # Оставляем только интересующие уровни
+merged_data <- brain_data_work %>%
+  filter(DayType %in% c("workday", "weekend")) # Оставляем только интересующие уровни
  
 # Проверяем уровни переменной DayType
 levels(merged_data$DayType)
@@ -394,60 +379,48 @@ print(t_test_result)
 - Среднее значение EMS выше на будних днях (14.94728) по сравнению с выходными (12.58244).
 
 
-## Добавляем колонку с сезоном
+### Сезоны
 ```{r fig.width=12}
 
 # Добавляем колонку с сезоном
-merged_data <- brain_data %>%
+brain_data_season <- brain_data_work %>%
   mutate(
     Season = case_when(
-      month(Date) %in% c(12, 1, 2) ~ "Winter",
-      month(Date) %in% c(3, 4, 5) ~ "Spring",
-      month(Date) %in% c(6, 7, 8) ~ "Summer",
-      month(Date) %in% c(9, 10, 11) ~ "Autumn",
+      Month %in% c(12, 1, 2) ~ "Winter",
+      Month %in% c(3, 4, 5) ~ "Spring",
+      Month %in% c(6, 7, 8) ~ "Summer",
+      Month %in% c(9, 10, 11) ~ "Autumn",
       TRUE ~ NA_character_
     ),
     Season = as.factor(Season)  # Преобразуем в фактор
   )
 
 # Проверяем распределение EMS по сезонам
-ggplot(merged_data, aes(x = Season, y = EMS, fill = Season)) +
+ggplot(brain_data_season, aes(x = Season, y = EMS, fill = Season)) +
   geom_boxplot(alpha = 0.7) +
   theme_custom +
   labs(title = "Распределение EMS по сезонам", x = "Сезон", y = "EMS")
 
 
 # Сравнение EMS между сезонами: тест Крускала–Уоллиса
-kruskal_test <- kruskal.test(EMS ~ Season, data = merged_data)
+kruskal_test <- kruskal.test(EMS ~ Season, data = brain_data_season)
 print("Крускала–Уоллиса тест:")
 print(kruskal_test)
 
+
 # попарное сравнение (Dunn test)
 if (kruskal_test$p.value < 0.05) {
-  pairwise_comparison <- FSA::dunnTest(EMS ~ Season, data = merged_data, method = "bonferroni")
+  pairwise_comparison <- FSA::dunnTest(EMS ~ Season, data = brain_data_season, method = "bonferroni")
   print("Попарное сравнение (Dunn test):")
   print(pairwise_comparison)
 }
 
 ```
 
-### **Выводы**
+**Выводы**
 1. Распределение EMS между сезонами различается (p-value Крускала-Уоллиса < 0.05).
 2. При попарном сравнении значимые различия найдены только между **Autumn** и **Winter** (p.adj = 0.033).
 3. Для других пар сезонов различия статистически незначимы.
 
-```{r, fig.width=10}
-# Построение боксплотов для сравнения EMS по сезонам
-library(ggplot2)
-
-ggplot(merged_data, aes(x = Season, y = EMS)) +
-  geom_boxplot() +
-  labs(
-    title = "EMS по сезонам",
-    x = "Сезон",
-    y = "EMS"
-  ) +
-  theme_custom
-```
 
 
