@@ -42,10 +42,23 @@ theme_custom <- theme_bw()+ theme(
 
 ```{r read, message=FALSE}
 
+# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
 
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+heart_data <- read_csv("data/raw/heart_data.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
    mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
 
 work_days <- read_csv("./data/raw/working_calendar_all_years.csv",

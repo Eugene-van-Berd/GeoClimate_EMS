@@ -12,11 +12,15 @@ knitr::opts_chunk$set(
   fig.path = "data/pics/transform-"
   )
 
+library(conflicted)
 library(factoextra)
 library(readxl)
 library(skimr)
 library(tidyverse)
 library(zoo)
+
+conflict_prefer("filter", "dplyr", "stats")
+conflict_prefer("lag", "dplyr", "stats")
 
 ```
 
@@ -26,6 +30,9 @@ library(zoo)
 
 # Данные по вызовам скорой помощи по поводу острого нарушения мозгового кровообращения в Иркутске (2006 - 2022 года)
 brain_data_raw <- read_excel("data/raw/database_2024-11-09.xlsx")  
+
+# Данные по вызовам скорой помощи по поводу сердечных заболеваний в Иркутске (2006 - 2022 года)
+heart_data_raw <- read_excel("data/raw/database_2025-01-18.xlsx")  
 
 # Индексы геомагнитной активности (Ap и Kp) из GFZ, Potsdam (2006 - 2022 года)
 GFZ_Potsdam_Ap <- read_csv("data/raw/GFZ_Potsdam_Ap.csv")  
@@ -146,6 +153,7 @@ K_IRT <-
 ```{r skim_raw}
 
 skim(brain_data_raw)
+skim(heart_data_raw)
 
 ```
 
@@ -179,10 +187,11 @@ Dst_transform <- WDC_Kyoto_Dst %>%
 ```
 
 
-## Подготовка файла для анализа
+## Подготовка файлов для анализа
 
 ```{r tidy}
 
+# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
 brain_data <- brain_data_raw %>% 
   transmute(
     Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
@@ -191,10 +200,7 @@ brain_data <- brain_data_raw %>%
     F10.7 = `Cкорректированный (F10.7)` %>% na.approx(na.rm = FALSE), 
     Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
     Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
-      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE),
-    
-    #Данные о количестве умерших не используем из-за большого количества пропусков
-  
+      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE)
   ) %>% 
   filter(!is.na(Date)) %>%
   left_join(Roshydromet_Irkutsk, by = join_by(Date)) %>%  #Данные о температуре и осадках
@@ -208,12 +214,27 @@ brain_data <- brain_data_raw %>%
                                                              TRUE ~ "Yes") ) ) ) %>% 
   mutate(COVID = as.factor(ifelse(Date >= "2020-03-27", "Yes", "No")))
 
+# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+heart_data <- brain_data %>% 
+  select(!EMS) %>% 
+  left_join(
+    heart_data_raw %>% 
+      transmute( 
+        Date = seq.Date(from = as.Date("2006-11-29"), by = "day", length.out = n()), 
+        #Нестабильная стенокардия (Unstable angina)
+        EMS_UA = `Вызова СМП с диагнозом НС у всех пациентов старше 25 лет`,   
+        #Острый инфаркт миокарда (Acute Myocardial Infarction)
+        EMS_AMI = `Вызова СМП с диагнозом ОИМ у всех пациентов старше 25 лет`
+        ),
+    by = join_by(Date)) 
+
 ```
 
-## Подготовка длинного файла для анализа
+## Подготовка длинных файлов для анализа
 
 ```{r long}
 
+# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
 brain_data_long <- brain_data_raw %>% 
   transmute(
     Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
@@ -230,10 +251,7 @@ brain_data_long <- brain_data_raw %>%
     F10.7 = `Cкорректированный (F10.7)` %>% na.approx(na.rm = FALSE), 
     Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
     Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %>%  
-      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE),
-    
-    #Данные о количестве умерших не используем из-за большого количества пропусков
-  
+      ifelse(. < 600, NA, .) %>% na.approx(na.rm = FALSE)
   ) %>% 
   
   filter(!is.na(Date)) %>%
@@ -245,7 +263,8 @@ brain_data_long <- brain_data_raw %>%
   left_join(Dst_transform, by = join_by(Date)) %>%  #Данные о индексе Dst 
   left_join(Obs_Ebre_SSC, by = join_by(Date)) %>%  #Данные о магнитных бурях
   mutate( across( starts_with("Sud"), ~ factor( case_when(is.na(.) ~ "No",
-                                                             TRUE ~ "Yes") ) ) )  %>% 
+                                                             TRUE ~ "Yes") ) ) ) %>% 
+  mutate(COVID = as.factor(ifelse(Date >= "2020-03-27", "Yes", "No"))) %>% 
   
   # Длинный формат данных, 1 день - 6 строк
   pivot_longer(cols = starts_with("EMS_"), 
@@ -255,9 +274,67 @@ brain_data_long <- brain_data_raw %>%
   ) %>% 
   mutate(Sex = as.factor(Sex), 
          Age = as.factor(case_when(
-           Age == 1 ~ "25-44", Age == 2 ~ "45-54", Age == 3 ~ "55+"
-                         ))) %>% 
-  mutate(COVID = as.factor(ifelse(Date >= "2020-03-27", "Yes", "No")))
+         Age == 1 ~ "25-44", Age == 2 ~ "45-54", Age == 3 ~ "55+"
+                         ))) 
+
+# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+UA_data_long <- brain_data %>% 
+  select(!EMS) %>% 
+  left_join(
+    heart_data_raw %>% 
+      transmute( 
+        Date = seq.Date(from = as.Date("2006-11-29"), by = "day", length.out = n()), 
+        
+        #Данные скорой помощи с разбивкой по полу и возрасту
+        EMS_Male_1 = `Количество вызовов СМП с диагнозом НС у мужчин 25-44 лет`,
+        EMS_Male_2 = `Количество вызовов СМП с диагнозом НС у мужчин 45-54 лет`,
+        EMS_Male_3 = `Количество вызовов СМП с диагнозом НС у мужчин старше 55 лет`,
+        EMS_Female_1 = `Количество вызовов СМП с диагнозом НС у женщин 25-44 лет`,
+        EMS_Female_2 = `Количество вызовов СМП с диагнозом НС у женщин 45-54 лет`,
+        EMS_Female_3 = `Количество вызовов СМП с диагнозом НС у женщин старше 55 лет`
+        ),
+    by = join_by(Date)) %>% 
+  
+  # Длинный формат данных, 1 день - 6 строк
+  pivot_longer(cols = starts_with("EMS_"), 
+               names_to = c("Sex", "Age"), 
+               names_pattern = "EMS_(Male|Female)_(1|2|3)", 
+               values_to = "EMS"
+  ) %>% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+         Age == 1 ~ "25-44", Age == 2 ~ "45-54", Age == 3 ~ "55+"
+                         ))) 
+
+
+# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+AMI_data_long <- brain_data %>% 
+  select(!EMS) %>% 
+  left_join(
+    heart_data_raw %>% 
+      transmute( 
+        Date = seq.Date(from = as.Date("2006-11-29"), by = "day", length.out = n()), 
+        
+        #Данные скорой помощи с разбивкой по полу и возрасту
+        EMS_Male_1 = `Количество вызовов СМП с диагнозом ОИМ у мужчин 25-44 лет`,
+        EMS_Male_2 = `Количество вызовов СМП с диагнозом ОИМ у мужчин 45-54 лет`,
+        EMS_Male_3 = `Количество вызовов СМП с диагнозом ОИМ у мужчин старше 55 лет`,
+        EMS_Female_1 = `Количество вызовов СМП с диагнозом ОИМ у женщин 25-44 лет`,
+        EMS_Female_2 = `Количество вызовов СМП с диагнозом ОИМ у женщин 45-54 лет`,
+        EMS_Female_3 = `Количество вызовов СМП с диагнозом ОИМ у женщин старше 55 лет`
+        ),
+    by = join_by(Date)) %>% 
+  
+  # Длинный формат данных, 1 день - 6 строк
+  pivot_longer(cols = starts_with("EMS_"), 
+               names_to = c("Sex", "Age"), 
+               names_pattern = "EMS_(Male|Female)_(1|2|3)", 
+               values_to = "EMS"
+  ) %>% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+         Age == 1 ~ "25-44", Age == 2 ~ "45-54", Age == 3 ~ "55+"
+                         ))) 
 
 ```
 
@@ -267,7 +344,11 @@ brain_data_long <- brain_data_raw %>%
 ```{r skim_tidy}
 
 skim(brain_data)
+skim(heart_data)
 skim(brain_data_long)
+skim(UA_data_long)
+skim(AMI_data_long)
+
 
 ```
 
@@ -277,13 +358,28 @@ skim(brain_data_long)
 
 #Локальное храненение данных 
 write_csv(brain_data, "data/raw/brain_data.csv") 
+write_csv(heart_data, "data/raw/heart_data.csv") 
 write_csv(brain_data_long, "data/raw/brain_data_long.csv") 
+write_csv(UA_data_long, "data/raw/UA_data_long.csv") 
+write_csv(AMI_data_long, "data/raw/AMI_data_long.csv") 
 
-#Загрузка данных для анализа
+# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
 
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+heart_data <- read_csv("data/raw/heart_data.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
+   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+
+# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
    mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
 
 ```
