@@ -30,7 +30,7 @@ for (i in 2006:2022){
   response <- GET(paste0("https://isdayoff.ru/api/getdata?year=",i)) %>% 
                 content("text", encoding = "UTF-8") %>% strsplit("") %>% unlist()
             
-  DayOff <- c(DayOff, as.logical(as.numeric(response)))
+  DayOff <- c(DayOff, response)
 
 }
 
@@ -40,7 +40,8 @@ calendar <- tibble(
                                         month(Date) %in% c(3, 4, 5) ~ "Spring",
                                         month(Date) %in% c(6, 7, 8) ~ "Summer",
                                         month(Date) %in% c(9, 10, 11) ~ "Autumn" ), 
-  Month = month(Date, label = TRUE, abbr = FALSE,  locale = "ENG"), DayOff = DayOff )
+  Month = month(Date, label = TRUE, abbr = FALSE,  locale = "ENG"),
+  DayOff = factor(DayOff, levels = c("0", "1"), labels = c("No", "Yes")))
 
 ## Local storage
 write_csv(GFZ_Potsdam_Ap, "data/raw/GFZ_Potsdam.csv") 

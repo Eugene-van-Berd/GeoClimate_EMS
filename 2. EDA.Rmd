@@ -1,5 +1,5 @@
 ---
-title: "Разведочный анализ данных"
+title: "Exploratory data analysis"
 author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
 date: "`r Sys.Date()`"
 output: html_document
@@ -22,7 +22,6 @@ library(lubridate)
 library(GGally)
 library(ggfortify) 
 
-
 conflict_prefer("filter", "dplyr", "stats")
 conflict_prefer("lag", "dplyr", "stats")
 
@@ -42,27 +41,22 @@ theme_custom <- theme_bw()+ theme(
 
 ```{r read, message=FALSE}
 
-# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
+## Ambulance Data related to acute cerebrovascular accidents
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data related to acute cerebrovascular accidents
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
-# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+## Ambulance Data related to cardiovascular diseases
 heart_data <- read_csv("data/raw/heart_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data  related to unstable angina
 UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+## Ambulance Long Data related to acute myocardial infarction
 AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
-
-work_days <- read_csv("./data/raw/working_calendar_all_years.csv",
-                      show_col_types = FALSE)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
 

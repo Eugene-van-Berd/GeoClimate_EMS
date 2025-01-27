@@ -1,11 +1,7 @@
-#Eugene-van-Berd: система контроля версий пакетов для проекта
+#Package version control system for the project
 
-if (!requireNamespace("renv", quietly = TRUE)) {
-  install.packages("renv")
-}
-
-# Текущее состояние всех пакетов, используемых в проекте
+## Current state of all packages used in the project
 renv::snapshot()
 
-# Восстанавливаем все необходимые пакеты и зависимости, согласно renv.lock
+## Restore all required packages and dependencies according to renv.lock
 renv::restore() 
