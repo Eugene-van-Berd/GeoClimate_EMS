@@ -1,6 +1,6 @@
 ---
-title: "Регрессионный анализ"
-author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
+title: "Regression analysis"
+author: "Evgenii Berdinskikh, Marina Kozyreva, Anton Tikhonenko"
 date: "`r Sys.Date()`"
 output: html_document
 ---
@@ -21,9 +21,9 @@ library(MASS)
 library(sandwich)
 library(tidyverse)
 
-conflict_prefer("select", "dplyr", "MASS")
-conflict_prefer("filter", "dplyr", "stats")
-conflict_prefer("lag", "dplyr", "stats")
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::lag)
 
 theme_custom <- theme_bw()+ theme(
     plot.title = element_text(size = 30, hjust = 0.5),
@@ -37,56 +37,52 @@ theme_custom <- theme_bw()+ theme(
 
 ```
 
-## Загрузка данных для анализа
+## Data import 
 
 ```{r read, message=FALSE}
 
-# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
+## Ambulance Data related to acute cerebrovascular accidents
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data related to acute cerebrovascular accidents
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
-# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+## Ambulance Data related to cardiovascular diseases
 heart_data <- read_csv("data/raw/heart_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data  related to unstable angina
 UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+## Ambulance Long Data related to acute myocardial infarction
 AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
 
-## Моделирование 
+## Modeling 
 
 ```{r model, fig.width=10}
 
-# Регрессия Пуассона
-model_poisson <- glm(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+# Poisson regression
+model_poisson <- glm(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum, 
                      data = brain_data, family = poisson)
+# Overdispersion 
+dispersiontest(model_poisson) 
+# Autocorrelation of residuals
+residuals(model_poisson, type = "response") %>% acf() 
 
-# Проблемы
-dispersiontest(model_poisson) # Overdispersion 
-residuals(model_poisson, type = "response") %>% acf() # Автокорреляция остатков
-
-# Отрицательная биномиальная регрессия 
-model_NBR <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Dst_mean + Dst_var,
+# Negative binomial regression
+model_NBR <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum,
                     data = brain_data, link = "log")
-
-
 
 ```
 
-## Параметры модели
+## Model parameters
 
 ```{r params, fig.width=14}
 
-#Пуассон
+# Poisson regression
 summary(model_poisson)
 
 tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
@@ -97,7 +93,7 @@ tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
     paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
     signif((exp(estimate)), 3))) -> Poisson_data
 
-#Пуассон с коррекцией гетероскедастичности (vcovHC)
+# Heteroscedasticity-consistent estimation  (vcovHC)
 bind_cols(
   tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
   coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
@@ -110,7 +106,7 @@ bind_cols(
     paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
     signif((exp(estimate)), 3))) -> Poisson_vcovHC_data
 
-#Пуассон с коррекцией гетероскедастичности и автокорреляции (vcovHAC)
+# Heteroscedasticity and Autocorrelation Consistent estimation (vcovHAC)
 bind_cols(
   tidy(coeftest(model_poisson, vcov. = vcovHAC(model_poisson))),
   coefci(model_poisson, vcov. = vcovHAC(model_poisson)) %>% 
@@ -123,7 +119,7 @@ bind_cols(
     paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
     signif((exp(estimate)), 3))) -> Poisson_vcovHAC_data
 
-#Отрицательное биномиальное распределение
+# Negative binomial regression
 summary(model_NBR)
 
 tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
