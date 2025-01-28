@@ -1,6 +1,6 @@
-# Перечень скриптов
+# Scripts list
 
-1.  **`Setup.R`**: Cистема контроля версий пакетов для проекта
-2.  **`Download.R`**: Скачивание данных по индексам геомагнитной активности из Potsdam GFZ.
-3.  **`Render.R`**: Рендеринг файлов Rmd в папку *data/docs.*
+1.  **`Setup.R`**: Package version control
+2.  **`Download.R`**: API Data Extraction  
+3.  **`Render.R`**: Rendering Rmd files
 

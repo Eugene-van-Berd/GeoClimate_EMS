@@ -1,6 +1,6 @@
 ---
-title: "Разведочный анализ данных"
-author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
+title: "Exploratory data analysis"
+author: "Evgenii Berdinskikh, Marina Kozyreva, Anton Tikhonenko"
 date: "`r Sys.Date()`"
 output: html_document
 ---
@@ -21,10 +21,12 @@ library(tidyverse)
 library(lubridate)
 library(GGally)
 library(ggfortify) 
+library(rstatix)
+library(flextable)
 
-
-conflict_prefer("filter", "dplyr", "stats")
-conflict_prefer("lag", "dplyr", "stats")
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::lag)
 
 theme_custom <- theme_bw()+ theme(
     plot.title = element_text(size = 30, hjust = 0.5),
@@ -38,99 +40,89 @@ theme_custom <- theme_bw()+ theme(
 
 ```
 
-## Загрузка данных для анализа
+## Data import 
 
 ```{r read, message=FALSE}
 
-# Вызов скорой медицинской помощи по поводу острого нарушения мозгового кровообращения 
+## Ambulance Data related to acute cerebrovascular accidents
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data related to acute cerebrovascular accidents
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
+    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
-# Вызов скорой медицинской помощи по поводу сердечно-сосудистых заболеваний
+## Ambulance Data related to cardiovascular diseases
 heart_data <- read_csv("data/raw/heart_data.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу нестабильной стенокардии (Unstable angina)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data  related to unstable angina
 UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
-
-# Вызов скорой медицинской помощи по поводу острого инфаркта миокарда (Acute Myocardial Infarction)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+## Ambulance Long Data related to acute myocardial infarction
 AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
-   mutate(across(c(Month, Year, Dst_level, Sud_Imp, Sud_Storm, Sex, Age, COVID), as.factor))
-
-work_days <- read_csv("./data/raw/working_calendar_all_years.csv",
-                      show_col_types = FALSE)
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
 
-## Корреляция количественных переменных
+## Correlation of qualitative variables
 
-```{r message = false fig.width=20}
+```{r ggpairs, fig.height=20, fig.width=30, message=FALSE}
 
-
-# Предобработка данных
+# Data preprocessing
 brain_data_clear <- brain_data %>% 
-  select(where(is.numeric) & !c(ends_with("min"), ends_with("max")) & 
-         !c("Date", "Month", "Year", "Dst_var", "Dst_level", "Dst_PC1", "Dst_PC2")) %>% filter(complete.cases(.))
+  select( where(is.numeric) & !ends_with(c("min", "max", "var", "K_Sum")) ) %>%
+  filter(complete.cases(.))
 
-# Функция для отображения корреляций с нейтральным цветом для значений близких к 0
+# Function for displaying correlations with a neutral color for values close to 0
 color_correlation_fixed <- function(data, mapping, ...) {
+  
   x <- eval_data_col(data, mapping$x)
   y <- eval_data_col(data, mapping$y)
   cor_value <- cor(x, y, use = "complete.obs")
   
-  # Определение цвета: близкие к 0 делаем нейтральными (серым)
+  # Defining color
   color <- if (abs(cor_value) < 0.1) {
-    scales::alpha("gray50", 0.5)  # Нейтральный серый для слабых корреляций
+    scales::alpha("gray50", 0.5)           ## Gray for weak correlations
   } else if (cor_value > 0) {
-    scales::alpha("blue", abs(cor_value))  # Синий для положительных
+    scales::alpha("blue", abs(cor_value))  ## Blue for positive correlations
   } else {
-    scales::alpha("red", abs(cor_value))   # Красный для отрицательных
+    scales::alpha("red", abs(cor_value))   ## Red for negative correlations
   }
   
-  # Фильтр для небольших значений корреляции
+  # Filter for small correlation values
   cor_label <- ifelse(abs(cor_value) < 0.01, "0", sprintf("%.2f", cor_value))
   
-  ggplot(data.frame()) + # Пустой data.frame
-    annotate(
-      "text", 
-      x = 0.5, y = 0.5, # Центр ячейки
-      label = cor_label,
-      size = 6,
-      color = color
-    ) +
-    theme_void() # Убираем лишнее оформление
+  ggplot(data.frame()) + 
+    annotate("text", x = 0.5, y = 0.5, label = cor_label, size = 10, color = color ) +
+    theme_void() 
 }
 
-# Функция для линии тренда с золотистым цветом
+# Function for trend line with a golden color
 golden_smooth <- function(data, mapping, ...) {
   ggplot(data, mapping) +
-    geom_point(alpha = 0.4, size = 0.5, color = "black") + # Прозрачные точки
-    geom_smooth(color = "gold", ...) + # Золотистый цвет линии тренда
-    
+    geom_point(alpha = 0.4, size = 0.5, color = "black") + 
+    geom_smooth(color = "gold", ...) + 
     theme_custom
 }
 
-# Построение графика
+# Plot construction
 ggpairs(
   brain_data_clear, 
   progress = FALSE,
-  upper = list(continuous = color_correlation_fixed), # Подсветка корреляций
-  lower = list(continuous = golden_smooth)           # Золотистая линия тренда
-)+
+  upper = list(continuous = color_correlation_fixed), ## Highlighting correlations
+  lower = list(continuous = golden_smooth) )+         ## Golden trend line
+theme_custom +
   theme(
-    axis.text.x = element_text(size = 8),  # Уменьшение текста по оси X
-    axis.text.y = element_text(size = 8)   # Уменьшение текста по оси Y
-  )
+    axis.text.x = element_text(size = 10),  
+    axis.text.y = element_text(size = 10) )   
+
 ```
 
-```{r cor, fig.width=10, message=FALSE}
+```{r cor_data, fig.width=10, message=FALSE}
 
 cor_data <- brain_data %>% 
-  select( where(is.numeric) & !c(Temp_min, Temp_max, Dst_PC1, Dst_PC2) ) %>%
+  select( where(is.numeric) & !ends_with(c("min", "max", "Sum", "var")) ) %>%
+  rename(Temperature = Temp_mean, Precipitation = H2O, 
+         `F10.7 index` = F10.7, `Ap index` = Ap_mean, `Dst index` = Dst_mean) %>% 
   cor(use = "pairwise.complete.obs") 
   
 corrplot(cor_data, method = 'number', type = 'lower', diag = FALSE)
@@ -139,69 +131,57 @@ network_plot(cor_data, min_cor = .1)
 
 ```
 
-При анализе сетевого графика можно выделить три группы признаков:
+When analyzing the network graph, three groups of features can be identified:
 
--   Климатические: температура, давление, ветер, осадки;
--   Геомагнитные: индексы Dst, Ap;
--   Солнечные: индекс F10.7, количество солнечных пятен.
+- Climatic: temperature, pressure, wind, precipitation;
+- Geomagnetic: Dst index, Ap index;
+- Solar: F10.7 index, number of sunspots.
 
-При этом некоторые признаки внутри групп обладают высокой степенью корреляции!
+Additionally, some features within the groups exhibit a high degree of correlation!
 
-```{r point, message=FALSE}
-
-brain_data %>% 
-  ggplot(aes(Sunspots, F10.7))+
-  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
-  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
-  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
-  theme_custom
-
-brain_data %>% 
-  ggplot(aes(Dst_mean, Ap_mean))+
-  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
-  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
-  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
-  theme_custom
+```{r geom_jitter, fig.width=10, message=FALSE}
 
 brain_data %>% 
   drop_na() %>% 
   ggplot(aes(Temp_mean, Pressure))+
   geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
   geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
-  stat_cor(method = "pearson", label.x.npc = 0.4, label.y.npc = "top", size = 5)+
+  stat_cor(method = "pearson", label.x.npc = 0.6, label.y.npc = 0.9, size = 7)+
+  labs(x = "Temperature")+
   theme_custom
 
-```
+brain_data %>% 
+  ggplot(aes(Sunspots, F10.7))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0, label.y.npc = 0.9, size = 7)+
+  labs(x = "Sunspot Number", y = "F10.7 index")+
+  theme_custom
 
--   Индекс **F10.7** и количество **солнечных пятен** показывают высокую корреляцию (r = 0.92), поскольку оба показателя отражают солнечную активность, но измеряются разными методами.\
--   Среднесуточные индексы **Ap** и **Dst** также заметно коррелируют (r = -0.70), так как оба характеризуют изменения в геомагнитном поле Земли под воздействием солнечного ветра.\
--   Также ожидаемо выявлена отрицательная корреляция между средней температурой и давлением за день (r = -0.73).
+brain_data %>% 
+  ggplot(aes(Dst_mean, Ap_mean))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0.6, label.y.npc = 0.9, size = 7)+
+  labs(x = "Daily Average Dst index", y = "Daily Average Ap index")+
+  theme_custom
 
-Для дальнейшего анализа из каждой пары переменных оставим одну:\
-1.
-**Количество солнечных пятен** — этот показатель имеет полный набор данных и обладает большей вариативностью.\
-2.
-**Индекс Dst** — напрямую связан с влиянием солнечной активности на магнитосферу.\
-3.
-**Температура** — обеспечивает полный охват данных за весь период исследования и обладает более высокой вариативностью.
-
-```{r cor2, fig.width=10, message=FALSE}
-
-cor_data2 <- brain_data %>% 
-  select( where(is.numeric) & !c(Temp_min, Temp_max, F10.7, Pressure, Ap_mean) ) %>%
-  cor(use = "pairwise.complete.obs") 
-  
-corrplot(cor_data2, method = 'number', type = 'lower', diag = FALSE)
-
-network_plot(cor_data2, min_cor = .1)
 
 ```
 
-Влияние Dst_PC1 и Dst_PC2 на рост числа вызовов скорой помощи, вероятно, схоже с Dst_mean и Dst_var, но их стоит дополнительно проверить на этапе моделирования.
+- A negative correlation was expected between the daily average temperature and pressure (r = -0.73).
+- The F10.7 index and the number of sunspots show a high correlation (r = 0.92), as both reflect solar activity but are measured using different methods.
+- The daily average Ap and Dst indices demonstrate a significant correlation (r = -0.70), as both reflect changes in the Earth's geomagnetic field. However, the distribution of data along the trend line remains uneven.
 
-## Циклы солнечной активности
+Based on further analysis, the following variables will be excluded:
 
-```{r cycle}
+- **Pressure**: does not provide full coverage of the data throughout the study period and exhibits less variability compared to Temperature.
+- **F10.7 Index**: has an incomplete data set and exhibits less variability compared to Sunspot count.
+- The **Ap and Dst** geomagnetic activity indices will not be excluded.
+
+## Solar cycles
+
+```{r cycle, fig.height=8, fig.width=16}
 
 brain_data %>% 
   select(!c(Pressure, F10.7, Ap_mean)) %>% 
@@ -213,90 +193,66 @@ brain_data %>%
              colour = "orangered", linewidth = 1, linetype = "dashed")+
   geom_vline(xintercept = as.Date("2019-12-31"), 
              colour = "orangered", linewidth = 1, linetype = "dashed")+
-  scale_x_date(date_breaks = "1 year", date_labels = "%Y")+
-  theme_bw()
-
-```
-
-Количество солнечных пятен напрямую связано с циклами солнечной активности, что подтверждается на графике.
-Для дальнейшего анализа целесообразно отдельно рассмотреть период 2009–2019 гг., охватывающий полный 24-й цикл солнечной активности
-
-## Декомпозиция данных
-
-```{r decompose, fig.height=8}
-
-brain_data %>% 
-  filter(Date >=  ymd("2007-01-01")) %>%
-  pull(Sunspots) %>% ts(start = 2007, frequency = 365) %>%
-  stl(s.window = "periodic") %>% 
-  autoplot() + 
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
+  labs(x = "", y = "Sunspot number")+
   theme_custom
 
 ```
 
-Декомпозиция позволяет выявить тренды и сезонную цикличность:
+The number of sunspots is directly linked to the solar activity cycles, as confirmed by the graph.
+For further analysis, it is advisable to focus separately on the period from 2009 to 2019, which covers the complete 24th solar activity cycle.
 
-```{r check, fig.width=12, message=FALSE, warning=FALSE}
+## Data Decomposition 
 
-##Линейный тренд EMS
-brain_data %>% 
-  filter(Date >=  ymd("2007-01-01")) %>%
-  pull(EMS) %>% ts(start = 2007, frequency = 365) %>%
-  stl(s.window = "periodic") %>% 
-  .$time.series %>% .[,"trend"] %>%
-  autoplot() + 
-  scale_x_continuous(n.breaks = 10)+
-  theme_custom+
-  ggtitle("Декомпозиция вызовов скорой помощи: Тренд")
+Decomposition allows us to identify trends and cyclicity:
 
+```{r decompose, fig.height=15, fig.width=15}
 
-##Сезонная цикличность по температуре
-brain_data %>% 
-  filter(Date >=  ymd("2007-01-01")) %>%
-  pull(Temp_mean) %>% ts(start = 2007, frequency = 365) %>%
-  stl(s.window = "periodic") %>% 
-  .$time.series %>% .[,"seasonal"] %>%
-  autoplot()+
-  scale_x_continuous(n.breaks = 10)+
-  theme_custom+
-  ggtitle("Декомпозиция температуры: Сезонность")
-
-
-# Сложности с индексом Dst
 ggarrange(
-brain_data %>% 
-  filter(Date >=  ymd("2007-01-01")) %>%
-  pull(Sunspots) %>% ts(start = 2007, frequency = 365) %>%
-  stl(s.window = "periodic") %>% 
-  .$time.series %>% .[,"trend"] %>%
-  autoplot() + 
-  scale_x_continuous(n.breaks = 5)+
-  theme_custom, 
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(Sunspots) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("Sunspots"), 
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(EMS) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("EMS"), 
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(Temp_mean) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("Temperature"), 
+
+  nrow = 1
+)
+
+ggarrange(
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(Sunspots) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("Sunspots"), 
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(Ap_mean) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("Ap Index"), 
+
+  brain_data %>% filter(Date >=  ymd("2007-01-01")) %>% pull(Dst_var) %>% 
+  ts(start = 2007, frequency = 365) %>% stl(s.window = "periodic") %>% 
+  autoplot() + theme_custom + ggtitle("Dst amplitude"), 
   
-brain_data %>% 
-  filter(Date >=  ymd("2007-01-01")) %>%
-  pull(Dst_var) %>% ts(start = 2007, frequency = 365) %>%
-  stl(s.window = "periodic") %>% 
-  .$time.series %>% .[,"trend"] %>%
-  autoplot() + 
-  scale_x_continuous(n.breaks = 5)+
-  theme_custom, 
-
- labels = c("Декомпозиция солнечных пятен: Тренд", "Декомпозиция индекса Dst: Тренд") 
-  ) 
-
+  nrow = 1
+)
 
 ```
 
--   После декомпозиции данных о вызовах скорой помощи наблюдается линейный рост во времени. Однако начиная с 2020 года заметно снижение, которое, вероятно, связано с пандемией COVID-19.
--   Климатические данные (особенно температура), после декомпозиции, демонстрируют выраженную цикличность.
--   Индекс Dst_mean не показывает явных трендов или циклов. В то время как индекс Dst_var (амплитуда колебаний индекса Dst за день), после декомпозиции, имеет тренд, схожий с динамикой количества солнечных пятен.
+- After decomposing the **emergency medical call data**, a linear increase over time is observed. However, since 2020, a noticeable decrease is apparent, likely associated with the COVID-19 pandemic.
+- Climatic data (especially **temperature**), after decomposition, show a clear cyclic pattern.
+- The **daily Dst index** does not show any clear trends or cycles. However, the daily fluctuation **amplitude of the Dst index**, after decomposition, exhibits a trend similar to the dynamics of sunspot numbers. Nevertheless, since noise is the dominant component, the results should not be taken too seriously.
 
-## Визуализация ассоциаций
+## Visualizing Association
 
-```{r vis, fig.width=15}
+### Trends: EMS & Sunspots 
+```{r geom_tile, fig.height=9, fig.width=18}
 
-#EMS/Sunspots сезонность
 ggarrange(
 brain_data %>%  
   filter(Date %within% interval(ymd("2007-01-01"), ymd("2019-12-31"))) %>%
@@ -305,8 +261,8 @@ brain_data %>%
   ggplot(aes(x = Month, y = Year, fill = EMS_month)) +
   geom_tile(colour = "black") + 
   scale_fill_gradient(low = "green", high = "red") + 
-  scale_y_discrete(expand = expansion(add = c(0, 2)))+
-  labs(x = "", y  = "", fill = "")+
+  scale_x_discrete(labels = month.abb) + 
+  labs(x = "", y  = "", fill = "", title = "Total Number of Emergency Calls")+
   theme_custom,
 
 brain_data %>%  
@@ -316,155 +272,104 @@ brain_data %>%
   ggplot(aes(x = Month, y = Year, fill = Sunspots_month)) +
   geom_tile(colour = "black") + 
   scale_fill_gradient(low = "green", high = "red") + 
-  scale_y_discrete(expand = expansion(add = c(0, 2)))+
-  labs(x = "", y  = "", fill = "")+
-  theme_custom, 
- 
-labels = c("Суммарное количество вызовов скорой", "Суммарное количество солнечных пятен")
+  scale_x_discrete(labels = month.abb) + 
+  labs(x = "", y  = "", fill = "", title = "Total Number of Sunspots")+
+  theme_custom
 )
 
-#Dst ~ Sunspots
+```
+
+### Dst ~ Sunspots
+```{r Dst_level, fig.height=8, fig.width=16}
+
 brain_data %>%
   filter(Dst_level != "Severe") %>%
+  mutate(Dst_level = fct_relevel(Dst_level, c("Quiet", "Weak", "Moderate", "Major", "Severe"))) %>% 
   ggplot(aes(Dst_level, Sunspots))+
-  geom_jitter(alpha = 0.5)+
+  geom_jitter(alpha = 0.5, size = 1, width = 0.2) +  
   geom_boxplot(alpha = 0.5, outliers = FALSE, fill = "goldenrod2", linewidth = 1)+
+  labs( x = "Geomagnetic activity level",  y = "Sunspot Number" ) +
   theme_custom
 
 ```
 
-## Рабочие дни и сезоны ~ EMS
+### DayOff ~ EMS
+```{r DayOff, fig.height=8, fig.width=16}
 
-### Тип дня 
+mean_values <- brain_data %>%
+  group_by(DayOff) %>%
+  summarise(mean_EMS = round(mean(EMS, na.rm = TRUE), 2), .groups = "drop")
 
-```{r}
-
-brain_data_work <- work_days %>%
-  rename(DayType = Type) %>%  # Переименование столбца Type в DayType
-  inner_join(brain_data, by = "Date") %>%
-  mutate(DayType = as.factor(DayType),
-         DayType = dplyr::recode(DayType, "work" = "workday", "nowork" = "weekend")) 
-skimr::skim(brain_data_work)
-```
-
-```{r, fig.width=12}
-# Устанавливаем цвета для каждого DayType
-daytype_colors <- c(
-  "holiday weekend" = "green3",  
-  "weekend" = "darkgreen",         
-  "preholiday" = "steelblue",    
-  "workday" = "firebrick"        
-)
-
-# Построение боксплота 
-ggplot(brain_data_work, aes(x = DayType, y = EMS, fill = DayType)) +
-  geom_boxplot() +
-  scale_fill_manual(values = daytype_colors) +
-  labs(
-    title = "EMS в зависимости от DayType",
-    x = "Тип дня (DayType)",
-    y = "EMS",
-    fill = "Тип дня"
-  ) +
-  theme_custom 
-  
-```
-```{r}
-
-merged_data <- brain_data_work %>%
-  filter(DayType %in% c("workday", "weekend")) # Оставляем только интересующие уровни
- 
-# Проверяем уровни переменной DayType
-levels(merged_data$DayType)
-
-# Выполняем t-тест
-t_test_result <- t.test(
-  EMS ~ DayType, 
-  data = merged_data %>% filter(!is.na(EMS))
-)
-print(t_test_result)
-
-
-```
-
-**Интерпретация:**
-- \( p \)-value < 0.05: Различие между средними значениями EMS для будней и выходных **статистически значимо**.
-- Среднее значение EMS выше на будних днях (14.94728) по сравнению с выходными (12.58244).
-
-
-### Сезоны
-```{r fig.width=12}
-
-# Добавляем колонку с сезоном
-brain_data_season <- brain_data_work %>%
-  mutate(
-    Season = case_when(
-      Month %in% c(12, 1, 2) ~ "Winter",
-      Month %in% c(3, 4, 5) ~ "Spring",
-      Month %in% c(6, 7, 8) ~ "Summer",
-      Month %in% c(9, 10, 11) ~ "Autumn",
-      TRUE ~ NA_character_
-    ),
-    Season = as.factor(Season)  # Преобразуем в фактор
-  )
-
-# Проверяем распределение EMS по сезонам
-ggplot(brain_data_season, aes(x = Season, y = EMS, fill = Season)) +
-  geom_boxplot(alpha = 0.7) +
+ggplot(brain_data, aes(x = DayOff, y = EMS)) +
+  geom_boxplot(aes(fill = DayOff)) +
+  geom_text(data = mean_values, 
+            aes(x = DayOff, y = mean_EMS, label = mean_EMS), 
+            color = "black", size = 8, fontface = "bold", vjust = -1) +
+  scale_fill_brewer(palette = "Dark2", direction = -1)+
+  scale_y_continuous(limits = c(NA, max(brain_data$EMS) + 3))+
+  labs(y = "Number of Emergency Medical Calls", x = "Non-working Days")+
   theme_custom +
-  labs(title = "Распределение EMS по сезонам", x = "Сезон", y = "EMS")
-
-
-# Сравнение EMS между сезонами: тест Крускала–Уоллиса
-kruskal_test <- kruskal.test(EMS ~ Season, data = brain_data_season)
-print("Крускала–Уоллиса тест:")
-print(kruskal_test)
-
-
-# попарное сравнение (Dunn test)
-if (kruskal_test$p.value < 0.05) {
-  pairwise_comparison <- FSA::dunnTest(EMS ~ Season, data = brain_data_season, method = "bonferroni")
-  print("Попарное сравнение (Dunn test):")
-  print(pairwise_comparison)
-}
+  theme(legend.position = "none")+
+  stat_pvalue_manual(t_test(data = brain_data,  EMS ~ DayOff),
+                     label = "T-test, p = {p}", 
+                     size = 10, 
+                     y.position = max(brain_data$EMS) + 0.1)
 
 ```
 
-**Выводы**
-1. Распределение EMS между сезонами различается (p-value Крускала-Уоллиса < 0.05).
-2. При попарном сравнении значимые различия найдены только между **Autumn** и **Winter** (p.adj = 0.033).
-3. Для других пар сезонов различия статистически незначимы.
+- The difference between the average EMS values for weekdays and weekends is statistically significant.
+- The average EMS value is higher on weekdays (13.33) compared to weekends (11.02).
 
-## Геомагнитные индексы
-
-```{r K_IRT, fig.width=15}
+### Season ~ EMS
+```{r Season, fig.height=8, fig.width=16}
 
 brain_data %>% 
-  ggplot(aes(K_Sum, Kp_Sum))+
+mutate(Season = fct_relevel(Season, c("Winter", "Spring", "Summer", "Autumn"))) %>% 
+ggplot(aes(x = Season, y = EMS, fill = Season)) +
+  geom_boxplot(alpha = 0.7, show.legend = FALSE) +
+  scale_fill_manual(
+    values = c("Winter" = "#1f77b4", "Spring" = "#2ca02c", "Summer" = "#ff7f0e","Autumn" = "#d62728")) +
+  labs(y = "Number of Emergency Medical Calls", x = "")+
+  theme_custom 
+
+brain_data %>%
+  pairwise_t_test(EMS ~ Season, p.adjust.method = "holm") %>% 
+  transmute(`Group 1` = group1, `Group 2` = group2, 
+            `p-value` = p, `p.adjusted` = p.adj) %>%
+  flextable() 
+
+```
+
+The distribution of emergency medical service calls across seasons is statistically insignificant 
+(**paired t-test with Holm p-value adjustment method: p.adjusted > 0.05**).
+
+### Geomagnetic indices
+```{r K_IRT, fig.width=10, message=FALSE}
+
+brain_data %>% 
+  drop_na(Kp_Sum, K_Sum) %>% 
+  ggplot(aes(Kp_Sum, K_Sum))+
   geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
   geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
-  stat_cor(method = "pearson", label.x.npc = 0.1, label.y.npc = "top", size = 5)+
+  stat_cor(method = "pearson", label.x.npc = 0, label.y.npc = 0.9, size = 7)+
+  labs(x = "Daily Average Kp index", y = "Daily Average K index (IRT)")+
   theme_custom
 
 brain_data %>%
-  ggplot(aes(x = Date)) +
-  geom_line(aes(y = K_Sum, colour = "K_Sum"), linewidth = 1, alpha = 0.8) +
-  geom_line(aes(y = Kp_Sum, colour = "Kp_Sum"), linewidth = 1, alpha = 0.4) +
-  scale_color_manual(
-    name = "K-индекс",
-    values = c("K_Sum" = "royalblue2", "Kp_Sum" = "orangered2"),
-    labels = c("K_Sum" = "Иркутск", "Kp_Sum" = "Планетарный")
-  ) +
-  scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
-  theme_custom+
-  labs(
-    title = "Сравнение планетарного и локального K-индексов", 
-    x = "Дата",
-    y = "К индекс"
-  )
-
+  drop_na(Kp_Sum, K_Sum) %>% 
+  pivot_longer(cols = c(Kp_Sum, K_Sum), names_to = "index") %>% 
+  ggplot() +
+  geom_histogram(aes(x = value, fill = index), 
+                 binwidth = 5, colour = "black", alpha = 0.5, position = "identity", show.legend = FALSE) +
+  scale_fill_manual(
+    values = c("K_Sum" = "#228B22", "Kp_Sum" = "#87CEFA") )+
+  scale_x_continuous(breaks = seq(0, 50, 10))+
+  labs( x = "Index Values", y = "Observation Count", fill = "Index Type") +
+  theme_custom +
+  facet_wrap(~index, labeller = labeller(index = c("K_Sum" = "Daily Average K index (IRT)",
+                                                   "Kp_Sum" = "Daily Average Kp index")))
 
 ```
 
-
-
+Daily Average Kp index and Daily Average K index (IRT) show a strong correlation **(r = 0.91)**.
+However, K index (IRT) has a smaller range and a more uniform distribution compared to Kp index.
