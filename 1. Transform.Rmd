@@ -1,6 +1,6 @@
 ---
 title: "Transforming raw data"
-author: "Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова"
+author: "Evgenii Berdinskikh, Marina Kozyreva, Anton Tikhonenko"
 date: "`r Sys.Date()`"
 output: html_document
 ---
@@ -19,8 +19,9 @@ library(skimr)
 library(tidyverse)
 library(zoo)
 
-conflict_prefer("filter", "dplyr", "stats")
-conflict_prefer("lag", "dplyr", "stats")
+conflicts_prefer(dplyr::filter)
+conflicts_prefer(dplyr::select)
+conflicts_prefer(dplyr::lag)
 
 ```
 
