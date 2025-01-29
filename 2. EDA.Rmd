@@ -253,3 +253,164 @@ brain_data %>%
   theme_custom
 
 ```
+
+## Общее распределение данных (индексы, солнечные пятна, плотность EMS)
+
+```{r}
+ggplot(brain_data, aes(x = Date, y = Dst_mean))+
+  geom_col()+
+    geom_smooth(method = "gam")
+
+ggplot(brain_data, aes(x = Date, y = Ap_mean))+
+  geom_col()+
+    geom_smooth(method = "gam")
+
+ggplot(brain_data, aes(x = Date, y = F10.7))+
+  geom_col()+
+    geom_smooth(method = "gam")
+
+ggplot(brain_data, aes(x = Date, y = Sunspots))+
+  geom_col()+
+    geom_smooth(method = "gam")
+```
+
+```{r}
+brain_data%>%
+  ggplot(aes(x = EMS))+
+  geom_density()+
+theme_custom
+```
+
+## Переменная ~ количество вызовой скорой
+
+```{r, heights=9, width=10}
+Ap_EMS <- ggplot(brain_data,
+       aes(x = `Ap_mean`,
+           y = `EMS`))+
+  geom_point()+
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")+
+  theme_custom
+
+Dst_EMS <- ggplot(brain_data,
+       aes(x = `Dst_mean`,
+           y = `EMS`))+
+  geom_point()+
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")+
+  theme_custom
+
+F10.7_EMS <- ggplot(brain_data,
+       aes(x = `F10.7`,
+           y = `EMS`))+
+  geom_point()+
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")+
+  theme_custom
+
+Sunsp_EMS <- ggplot(brain_data,
+       aes(x = `Sunspots`,
+           y = `EMS`))+
+  geom_point()+
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")+
+  theme_custom
+
+plot_all <- ggarrange(Ap_EMS, Dst_EMS, F10.7_EMS, Sunsp_EMS,
+                      ncol = 2,
+                      nrow = 2)
+ggsave("plot_all.png", plot = plot_all, width = 14, height = 8, dpi = 300)
+```
+
+
+```{r}
+ggplot(brain_data,
+       aes(x = `Temp_mean`,
+           y = `EMS`))+
+  geom_point()+
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+```
+
+## Распределение Dst по годам 2009-2010
+
+```{r}
+brain_data %>%
+   filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
+  mutate(Year = year(Date)) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+    geom_smooth(se = FALSE,
+              method = "loess",
+              colour = "goldenrod1")+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+
+  facet_wrap(vars(Year), ncol = 1, nrow = 11, scales = "free_x") +
+  scale_y_continuous(limits = c(-150, 50))
+```
+
+## Dst по сезонам в течение 2015
+
+```{r}
+brain_data %>%
+  filter(Date %within% interval(ymd("2014-12-01"), ymd("2015-12-01"))) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+
+brain_data %>%
+  filter(Date %within% interval(ymd("2014-12-01"), ymd("2015-03-01"))) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+
+brain_data %>%
+  filter(Date %within% interval(ymd("2015-03-01"), ymd("2015-06-01"))) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+
+brain_data %>%
+  filter(Date %within% interval(ymd("2015-06-01"), ymd("2015-09-01"))) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+
+brain_data %>%
+  filter(Date %within% interval(ymd("2015-09-01"), ymd("2015-12-01"))) %>%
+ggplot(
+       aes(x = `Date`,
+           y = `Dst_mean`))+
+  geom_point()+
+  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
+  geom_smooth(se = FALSE,
+              method = "gam",
+              colour = "goldenrod1")
+```
