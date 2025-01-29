@@ -1,20 +1,17 @@
-# Eugene-van-Berd: Рендеринг Rmd файлов в HTML (и Markdown) c выводом в папку 'data/docs'
+# Rendering Rmd files to HTML (and Markdown) with output to the 'data/docs' folder
 
+## Packages
 library(tidyverse)
 library(rmarkdown)
 
-list.files()
-"1. Transform.Rmd"
-"2. EDA.Rmd"
-"3. Models.Rmd" 
+## Rendering Files
+input_file <- c("1. Transform.Rmd", "2. EDA.Rmd", "3. Models.Rmd")
 
-# Путь к нужному Rmd файлу (список файлов можно посмотреть тут - list.files() / list.files("scripts"))
-input_file <- "3. Models.Rmd" 
-
-# Рендерим файл
-render(input = input_file, 
-       output_dir = "data/docs", 
-       output_file = str_replace(basename(input_file), "Rmd", "html"))
+for (i in input_file){
+  render(input = i, 
+         output_dir = "data/docs", 
+         output_file = str_replace(basename(i), "Rmd", "html"))
+}
 
 
 

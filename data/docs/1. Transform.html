@@ -9,11 +9,11 @@
 <meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
 
 
-<meta name="author" content="Евгений Бердинских, Марина Козырева, Антон Тихоненко, Олеся Цветкова" />
+<meta name="author" content="Evgenii Berdinskikh, Marina Kozyreva, Anton Tikhonenko" />
 
-<meta name="date" content="2024-12-17" />
+<meta name="date" content="2025-01-29" />
 
-<title>Преобразование исходных данных</title>
+<title>Transforming raw data</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -350,936 +350,257 @@ display: none;
 
 
 
-<h1 class="title toc-ignore">Преобразование исходных данных</h1>
-<h4 class="author">Евгений Бердинских, Марина Козырева, Антон Тихоненко,
-Олеся Цветкова</h4>
-<h4 class="date">2024-12-17</h4>
+<h1 class="title toc-ignore">Transforming raw data</h1>
+<h4 class="author">Evgenii Berdinskikh, Marina Kozyreva, Anton
+Tikhonenko</h4>
+<h4 class="date">2025-01-29</h4>
 
 </div>
 
 
-<div id="загрузка-исходных-файлов" class="section level2">
-<h2>Загрузка исходных файлов</h2>
-<pre class="r"><code># Данные по вызовам скорой помощи по поводу острого нарушения мозгового кровообращения в Иркутске (2006 - 2022 года)
-brain_data_raw &lt;- read_excel(&quot;data/raw/database_2024-11-09.xlsx&quot;)  
+<div id="data-preparation" class="section level2">
+<h2>Data Preparation</h2>
+<pre class="r"><code># Ambulance Data in Irkutsk (2006 - 2022)
+brain_data_raw &lt;- read_excel(&quot;data/raw/database_2024-11-09.xlsx&quot;) ## Acute cerebrovascular accident
+heart_data_raw &lt;- read_excel(&quot;data/raw/database_2025-01-18.xlsx&quot;) ## Heart diseases
 
-# Индексы геомагнитной активности (Ap) из GFZ, Potsdam (2006 - 2022 года)
-GFZ_Potsdam_Ap &lt;- read_csv(&quot;data/raw/GFZ_Potsdam.csv&quot;)  
+# Geomagnetic activity indices (Ap and Kp) from GFZ, Potsdam (2006 - 2022)
+GFZ_Potsdam_Ap &lt;- read_csv(&quot;data/raw/GFZ_Potsdam_Ap.csv&quot;)  
+GFZ_Potsdam_Kp &lt;- read_csv(&quot;data/raw/GFZ_Potsdam_Kp.csv&quot;) %&gt;% select(Date, Kp_Sum)   
 
-# Индексы геомагнитной активности (Dst) из WDC, Kyoto (2006 - 2022 года)
-WDC_Kyoto_Dst &lt;- read_fwf(&quot;data/raw/WDC_Kyoto.dat&quot;, fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4))) %&gt;%
+# Geomagnetic activity index (Dst) from WDC, Kyoto (2006 - 2022)
+WDC_Kyoto_Dst &lt;- 
+  read_fwf(&quot;data/raw/WDC_Kyoto.dat&quot;, 
+           fwf_widths(c(3, 2, 2, 1, 2, 2, 1, 1, 2, 4, rep(4, 24), 4)), 
+           show_col_types = FALSE) %&gt;% 
   rowwise() %&gt;%
   transmute(
-    Date = as.Date(paste0(X9, X2, &quot;-&quot;, X3, &quot;-&quot;, X5)),
-    Dst_mean = X35,  #Среднее значение Dst за сутки
-    Dst_max = max(c_across(X11:X34), na.rm = TRUE), #Максимальное значение Dst за сутки
-    Dst_min = min(c_across(X11:X34), na.rm = TRUE), #Минимальное значение Dst за сутки
-    across(X11:X34) %&gt;%  set_names(paste0(&quot;H_&quot;, seq(1, 24))) #Индекс Dst на каждый час
-  ) %&gt;% 
-  ungroup()
+    Date = as.Date(paste0(X9, X2, &quot;-&quot;, X3, &quot;-&quot;, X5)), Dst_mean = X35, ## Daily average Dst value
+    Dst_max = max(c_across(X11:X34), na.rm = TRUE), Dst_min = min(c_across(X11:X34), na.rm = TRUE), 
+    Dst_var = Dst_max - Dst_min,  ## Daily Dst value amplitude
+    Dst_level = factor(case_when( ## Geomagnetic activity level`
+      Dst_min &lt; -150 ~ &quot;Severe&quot;, 
+      Dst_min &lt; -100 ~ &quot;Major&quot;, 
+      Dst_min &lt; -50 ~ &quot;Moderate&quot;,  
+      Dst_min &lt; -20 ~ &quot;Weak&quot;, 
+      TRUE ~ &quot;Quiet&quot;), levels = c(&quot;Quiet&quot;, &quot;Weak&quot;, &quot;Moderate&quot;, &quot;Major&quot;, &quot;Severe&quot;), ordered = TRUE) 
+    )  %&gt;% 
+  ungroup() %&gt;% 
+  select(-Dst_min, -Dst_max)
 
-# Данные о событиях SSC (Внезапное начало бури) и SI (Внезапный импульс) из Observatori de l&#39;Ebre (2006 - 2022 года)
+## `Dimitrov S, Mustafa FR, Stoilova I, Babayev ES, Kazimov EA (2009) Possible influence of solar extreme events and related geomagnetic disturbances on human cardio-vascular state: results of collaborative Bulgarian-Azerbaijani studies. Adv Space Res 43:641–648. https://doi.org/10.1016/j.asr.2008.09.006
+
+# Data on sudden events: SSC (Sudden Storm Commencement) and SI (Sudden Impulse) from Observatori de l&#39;Ebre (2006 - 2022)
 Obs_Ebre_SSC &lt;- tibble()
 
 for (i in (2006:2022)) {
-  
   link &lt;- paste0(&quot;data/raw/SC_data/ssc_&quot;, i, &quot;_d.txt&quot;)
   
   Obs_Ebre_SSC %&gt;% rbind(
+    
     read_tsv(link, col_names = &quot;raw&quot;) %&gt;%
       filter(str_starts(raw, paste0(i))) %&gt;%
       transmute(
         Date = str_replace_all(str_trunc( raw, width = 10, ellipsis = &quot;&quot;), &quot; &quot;, &quot;-&quot;) %&gt;% as.Date(),
-        Storm = factor(str_remove_all(raw, &quot;-&quot;) %&gt;% str_trunc( width = 2, side = &quot;left&quot;, ellipsis = &quot;&quot; ),
-          levels = c(&quot;SI&quot;, &quot;SC&quot;),
-          labels = c(&quot;Sud_Imp&quot;, &quot;Sud_Storm&quot;)
-        ))) -&gt; Obs_Ebre_SSC
-
+        Sudden_Start = str_remove_all(raw, &quot;-&quot;) %&gt;% 
+          str_trunc( width = 2, side = &quot;left&quot;, ellipsis = &quot;&quot; ))
+    
+    ) -&gt; Obs_Ebre_SSC
   }
 
-Obs_Ebre_SSC &lt;- Obs_Ebre_SSC %&gt;%
-  count(Date, Storm) %&gt;%
-  pivot_wider(names_from = Storm, values_from = n)
-
-
-# Погода в Иркутске из Росгидромет (1882 - 2023 года)
-Roshydromet_Irkutsk &lt;- read_fwf(&quot;data/raw/Roshydromet_Irkutsk.dat&quot;, fwf_widths(c(
-  5, 1, 4, 1, 2, 1, 2, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1
-))) %&gt;%
+Obs_Ebre_SSC &lt;- tibble(
+  Date = seq.Date(from = as.Date(&quot;2006-01-01&quot;), to = as.Date(&quot;2022-12-31&quot;), by = &quot;day&quot;)) %&gt;% 
+  left_join(
+    Obs_Ebre_SSC %&gt;% group_by(Date) %&gt;% summarize(Sudden_Start = n(), .groups = &quot;drop&quot;), 
+    by = join_by(Date)) %&gt;%
+  mutate(Sudden_Start = ifelse(is.na(Sudden_Start), &quot;No&quot;, &quot;Yes&quot;) %&gt;% as.factor()) 
+  
+# Weather data in Irkutsk from Rosgidromet (1882 - 2023)
+Roshydromet_Irkutsk &lt;- read_fwf(
+  &quot;data/raw/Roshydromet_Irkutsk.dat&quot;,
+  fwf_widths(c( 5, 1, 4, 1, 2, 1, 2, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1, 5, 1, 1, 1))) %&gt;%
   select(where(is.numeric)) %&gt;%
   transmute(
     Date = as.Date(paste0(X3, &quot;-&quot;, X5, &quot;-&quot;, X7)),
-    Temp_mean = X15,  # Температура за день (средняя, минимум, максиум)
+    Temp_mean = X15,  ## Daily temperature (average, minimum, maximum)
     Temp_min = X11,
     Temp_max = X19,
-    H2O = X23 # Количество осадков за день
-  ) 
+    H2O = X23 ## Daily precipitation
+    ) 
 
-#Международное число солнечных пятен из SIDC, Brussels (1818 - 2024 года)
+# International sunspot number from SIDC, Brussels (1818 - 2024)
 SIDC_SILSO &lt;- read_delim(&quot;data/raw/SIDC_SILSO.csv&quot;, delim = &quot;;&quot;, col_names = FALSE)  %&gt;% 
   transmute(Date = as.Date(paste0(X1, &quot;-&quot;, X2, &quot;-&quot;, X3)), 
-            Sunspots = as.numeric(X5))</code></pre>
-</div>
-<div id="оценка-исходных-данных" class="section level2">
-<h2>Оценка исходных данных</h2>
-<pre class="r"><code>skim(brain_data_raw)</code></pre>
-<table>
-<caption>Data summary</caption>
-<tbody>
-<tr class="odd">
-<td align="left">Name</td>
-<td align="left">brain_data_raw</td>
-</tr>
-<tr class="even">
-<td align="left">Number of rows</td>
-<td align="left">5738</td>
-</tr>
-<tr class="odd">
-<td align="left">Number of columns</td>
-<td align="left">50</td>
-</tr>
-<tr class="even">
-<td align="left">_______________________</td>
-<td align="left"></td>
-</tr>
-<tr class="odd">
-<td align="left">Column type frequency:</td>
-<td align="left"></td>
-</tr>
-<tr class="even">
-<td align="left">character</td>
-<td align="left">1</td>
-</tr>
-<tr class="odd">
-<td align="left">logical</td>
-<td align="left">1</td>
-</tr>
-<tr class="even">
-<td align="left">numeric</td>
-<td align="left">48</td>
-</tr>
-<tr class="odd">
-<td align="left">________________________</td>
-<td align="left"></td>
-</tr>
-<tr class="even">
-<td align="left">Group variables</td>
-<td align="left">None</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Variable type: character</strong></p>
-<table>
-<colgroup>
-<col width="19%" />
-<col width="13%" />
-<col width="19%" />
-<col width="5%" />
-<col width="5%" />
-<col width="8%" />
-<col width="12%" />
-<col width="15%" />
-</colgroup>
-<thead>
-<tr class="header">
-<th align="left">skim_variable</th>
-<th align="right">n_missing</th>
-<th align="right">complete_rate</th>
-<th align="right">min</th>
-<th align="right">max</th>
-<th align="right">empty</th>
-<th align="right">n_unique</th>
-<th align="right">whitespace</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td align="left">Дата</td>
-<td align="right">1</td>
-<td align="right">1</td>
-<td align="right">10</td>
-<td align="right">10</td>
-<td align="right">0</td>
-<td align="right">5737</td>
-<td align="right">0</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Variable type: logical</strong></p>
-<table>
-<colgroup>
-<col width="35%" />
-<col width="13%" />
-<col width="18%" />
-<col width="6%" />
-<col width="26%" />
-</colgroup>
-<thead>
-<tr class="header">
-<th align="left">skim_variable</th>
-<th align="right">n_missing</th>
-<th align="right">complete_rate</th>
-<th align="right">mean</th>
-<th align="left">count</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td align="left">Количество умерших в сутки</td>
-<td align="right">4417</td>
-<td align="right">0.23</td>
-<td align="right">0.16</td>
-<td align="left">FAL: 1105, TRU: 216</td>
-</tr>
-</tbody>
-</table>
-<p><strong>Variable type: numeric</strong></p>
-<table style="width:100%;">
-<colgroup>
-<col width="51%" />
-<col width="5%" />
-<col width="8%" />
-<col width="4%" />
-<col width="4%" />
-<col width="5%" />
-<col width="4%" />
-<col width="4%" />
-<col width="4%" />
-<col width="4%" />
-<col width="3%" />
-</colgroup>
-<thead>
-<tr class="header">
-<th align="left">skim_variable</th>
-<th align="right">n_missing</th>
-<th align="right">complete_rate</th>
-<th align="right">mean</th>
-<th align="right">sd</th>
-<th align="right">p0</th>
-<th align="right">p25</th>
-<th align="right">p50</th>
-<th align="right">p75</th>
-<th align="right">p100</th>
-<th align="left">hist</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td align="left">Вызов СМП с диагнозом ОНМК у всех пациентов старше 25
-лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">12.57</td>
-<td align="right">6.23</td>
-<td align="right">0.00</td>
-<td align="right">8.0</td>
-<td align="right">12.00</td>
-<td align="right">17.00</td>
-<td align="right">40.00</td>
-<td align="left">▅▇▅▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44
-лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">0.74</td>
-<td align="right">0.97</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">0.00</td>
-<td align="right">1.00</td>
-<td align="right">7.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54
-лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">0.80</td>
-<td align="right">0.97</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">1.00</td>
-<td align="right">1.00</td>
-<td align="right">9.00</td>
-<td align="left">▇▂▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у мужчин старше
-55 лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">3.54</td>
-<td align="right">2.44</td>
-<td align="right">0.00</td>
-<td align="right">2.0</td>
-<td align="right">3.00</td>
-<td align="right">5.00</td>
-<td align="right">18.00</td>
-<td align="left">▇▆▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у женщин 25-44
-лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">0.74</td>
-<td align="right">0.97</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">0.00</td>
-<td align="right">1.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▂▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у женщин 45-54
-лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">0.80</td>
-<td align="right">0.98</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">1.00</td>
-<td align="right">1.00</td>
-<td align="right">6.00</td>
-<td align="left">▇▂▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Количество вызовов СМП с диагнозом ОНМК у женщин старше
-55 лет</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">5.96</td>
-<td align="right">3.43</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">6.00</td>
-<td align="right">8.00</td>
-<td align="right">22.00</td>
-<td align="left">▇▇▃▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Sum Кр…9</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">12.16</td>
-<td align="right">8.01</td>
-<td align="right">0.00</td>
-<td align="right">6.0</td>
-<td align="right">11.00</td>
-<td align="right">17.00</td>
-<td align="right">49.00</td>
-<td align="left">▇▇▂▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Среднее значение Ар индекса…10</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">7.75</td>
-<td align="right">7.87</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">10.00</td>
-<td align="right">108.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Международное число солнечных пятен</td>
-<td align="right">1</td>
-<td align="right">1.00</td>
-<td align="right">27.13</td>
-<td align="right">29.62</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">17.00</td>
-<td align="right">45.00</td>
-<td align="right">141.00</td>
-<td align="left">▇▂▂▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Среднесуточное значение Dst в нТл</td>
-<td align="right">2801</td>
-<td align="right">0.51</td>
-<td align="right">-8.95</td>
-<td align="right">12.04</td>
-<td align="right">-69.00</td>
-<td align="right">-15.0</td>
-<td align="right">-7.00</td>
-<td align="right">-1.00</td>
-<td align="right">19.00</td>
-<td align="left">▁▁▂▇▂</td>
-</tr>
-<tr class="even">
-<td align="left">Суммарное Dst в сутки</td>
-<td align="right">2784</td>
-<td align="right">0.51</td>
-<td align="right">-221.97</td>
-<td align="right">306.72</td>
-<td align="right">-2444.00</td>
-<td align="right">-355.0</td>
-<td align="right">-170.00</td>
-<td align="right">-15.00</td>
-<td align="right">452.00</td>
-<td align="left">▁▁▁▇▇</td>
-</tr>
-<tr class="odd">
-<td align="left">Cкорректированный (F10.7)</td>
-<td align="right">11</td>
-<td align="right">1.00</td>
-<td align="right">92.62</td>
-<td align="right">28.42</td>
-<td align="right">63.40</td>
-<td align="right">70.4</td>
-<td align="right">79.50</td>
-<td align="right">109.15</td>
-<td align="right">255.00</td>
-<td align="left">▇▂▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Температура воздуха на высоте 2 метра над поверхностью
-земли в 8:00, С (Т)</td>
-<td align="right">929</td>
-<td align="right">0.84</td>
-<td align="right">-1.29</td>
-<td align="right">13.84</td>
-<td align="right">-38.40</td>
-<td align="right">-12.3</td>
-<td align="right">0.50</td>
-<td align="right">11.00</td>
-<td align="right">23.20</td>
-<td align="left">▁▅▆▇▇</td>
-</tr>
-<tr class="odd">
-<td align="left">Температура воздуха на высоте 2 метра над поверхностью
-земли в 17:00, С (Т)</td>
-<td align="right">923</td>
-<td align="right">0.84</td>
-<td align="right">6.24</td>
-<td align="right">14.92</td>
-<td align="right">-32.00</td>
-<td align="right">-6.1</td>
-<td align="right">7.50</td>
-<td align="right">19.35</td>
-<td align="right">35.40</td>
-<td align="left">▂▆▆▇▅</td>
-</tr>
-<tr class="even">
-<td align="left">Дельта температуры 17:00-8:00, ΔT</td>
-<td align="right">916</td>
-<td align="right">0.84</td>
-<td align="right">7.51</td>
-<td align="right">4.98</td>
-<td align="right">-25.60</td>
-<td align="right">4.0</td>
-<td align="right">7.50</td>
-<td align="right">11.30</td>
-<td align="right">28.40</td>
-<td align="left">▁▁▆▇▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Дельта температуры 8:00-17:00, ΔT</td>
-<td align="right">916</td>
-<td align="right">0.84</td>
-<td align="right">-7.51</td>
-<td align="right">4.98</td>
-<td align="right">-28.40</td>
-<td align="right">-11.3</td>
-<td align="right">-7.50</td>
-<td align="right">-4.00</td>
-<td align="right">25.60</td>
-<td align="left">▁▇▆▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Температура воздуха на высоте 2 метра над поверхностью
-земли сумарно за весь день, С (Т)</td>
-<td align="right">916</td>
-<td align="right">0.84</td>
-<td align="right">4.94</td>
-<td align="right">28.32</td>
-<td align="right">-67.60</td>
-<td align="right">-18.4</td>
-<td align="right">8.60</td>
-<td align="right">30.00</td>
-<td align="right">55.70</td>
-<td align="left">▁▆▆▇▆</td>
-</tr>
-<tr class="odd">
-<td align="left">Температура воздуха на высоте 2 метра над поверхностью
-земли в среднем за сутки, С (Т)</td>
-<td align="right">916</td>
-<td align="right">0.84</td>
-<td align="right">2.47</td>
-<td align="right">14.16</td>
-<td align="right">-33.80</td>
-<td align="right">-9.2</td>
-<td align="right">4.30</td>
-<td align="right">15.00</td>
-<td align="right">27.85</td>
-<td align="left">▁▆▆▇▆</td>
-</tr>
-<tr class="even">
-<td align="left">Максимальная температура</td>
-<td align="right">19</td>
-<td align="right">1.00</td>
-<td align="right">7.43</td>
-<td align="right">14.76</td>
-<td align="right">-32.00</td>
-<td align="right">-5.0</td>
-<td align="right">9.00</td>
-<td align="right">20.50</td>
-<td align="right">35.60</td>
-<td align="left">▁▆▆▇▆</td>
-</tr>
-<tr class="odd">
-<td align="left">Минимальная температура</td>
-<td align="right">18</td>
-<td align="right">1.00</td>
-<td align="right">-6.00</td>
-<td align="right">14.01</td>
-<td align="right">-42.00</td>
-<td align="right">-18.0</td>
-<td align="right">-3.00</td>
-<td align="right">6.00</td>
-<td align="right">18.80</td>
-<td align="left">▂▅▅▇▆</td>
-</tr>
-<tr class="even">
-<td align="left">Средняя температура</td>
-<td align="right">18</td>
-<td align="right">1.00</td>
-<td align="right">0.85</td>
-<td align="right">14.10</td>
-<td align="right">-36.80</td>
-<td align="right">-10.9</td>
-<td align="right">2.70</td>
-<td align="right">13.40</td>
-<td align="right">27.30</td>
-<td align="left">▁▆▆▇▆</td>
-</tr>
-<tr class="odd">
-<td align="left">Скорость ветра</td>
-<td align="right">19</td>
-<td align="right">1.00</td>
-<td align="right">3.10</td>
-<td align="right">1.43</td>
-<td align="right">0.00</td>
-<td align="right">2.0</td>
-<td align="right">3.00</td>
-<td align="right">4.00</td>
-<td align="right">12.00</td>
-<td align="left">▇▇▂▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Количество осадков</td>
-<td align="right">426</td>
-<td align="right">0.93</td>
-<td align="right">1.18</td>
-<td align="right">4.13</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">0.00</td>
-<td align="right">1.00</td>
-<td align="right">80.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Эффективная температура</td>
-<td align="right">18</td>
-<td align="right">1.00</td>
-<td align="right">-2.59</td>
-<td align="right">15.40</td>
-<td align="right">-42.10</td>
-<td align="right">-15.5</td>
-<td align="right">-1.20</td>
-<td align="right">11.10</td>
-<td align="right">26.80</td>
-<td align="left">▂▆▇▇▆</td>
-</tr>
-<tr class="even">
-<td align="left">Атмосферное давление на уровне станции в 8:00</td>
-<td align="right">928</td>
-<td align="right">0.84</td>
-<td align="right">721.81</td>
-<td align="right">24.33</td>
-<td align="right">0.00</td>
-<td align="right">717.3</td>
-<td align="right">721.80</td>
-<td align="right">727.30</td>
-<td align="right">749.60</td>
-<td align="left">▁▁▁▁▇</td>
-</tr>
-<tr class="odd">
-<td align="left">Атмосферное давление на уровне станции в 17:00</td>
-<td align="right">928</td>
-<td align="right">0.84</td>
-<td align="right">721.55</td>
-<td align="right">7.26</td>
-<td align="right">701.90</td>
-<td align="right">716.2</td>
-<td align="right">720.90</td>
-<td align="right">726.50</td>
-<td align="right">747.60</td>
-<td align="left">▁▇▇▂▁</td>
-</tr>
-<tr class="even">
-<td align="left">Атмосферное давление сумарно за весь день, С (Т)</td>
-<td align="right">928</td>
-<td align="right">0.84</td>
-<td align="right">1443.36</td>
-<td align="right">26.99</td>
-<td align="right">717.30</td>
-<td align="right">1433.6</td>
-<td align="right">1442.55</td>
-<td align="right">1453.60</td>
-<td align="right">1496.80</td>
-<td align="left">▁▁▁▁▇</td>
-</tr>
-<tr class="odd">
-<td align="left">Атмосферное давление в среднем за сутки, С (Т)</td>
-<td align="right">928</td>
-<td align="right">0.84</td>
-<td align="right">721.68</td>
-<td align="right">13.49</td>
-<td align="right">358.65</td>
-<td align="right">716.8</td>
-<td align="right">721.28</td>
-<td align="right">726.80</td>
-<td align="right">748.40</td>
-<td align="left">▁▁▁▁▇</td>
-</tr>
-<tr class="even">
-<td align="left">Kp 0-3</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.67</td>
-<td align="right">1.34</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">2.00</td>
-<td align="right">3.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▆▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Кр 3-6</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.60</td>
-<td align="right">1.33</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▆▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Кр 6-9</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.39</td>
-<td align="right">1.25</td>
-<td align="right">0.00</td>
-<td align="right">0.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▅▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Кр 9-12</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.34</td>
-<td align="right">1.17</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▃▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Кр 12-15</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.47</td>
-<td align="right">1.19</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▅▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Кр 15-18</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.50</td>
-<td align="right">1.23</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▅▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Кр 18-21</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.55</td>
-<td align="right">1.29</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▅▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Кр 21-24</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">1.63</td>
-<td align="right">1.31</td>
-<td align="right">0.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="right">8.00</td>
-<td align="left">▇▆▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Sum Кр…40</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">12.24</td>
-<td align="right">7.85</td>
-<td align="right">0.00</td>
-<td align="right">6.0</td>
-<td align="right">11.00</td>
-<td align="right">17.00</td>
-<td align="right">49.00</td>
-<td align="left">▇▇▂▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Ар 0-3</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">8.72</td>
-<td align="right">11.39</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">6.00</td>
-<td align="right">12.00</td>
-<td align="right">236.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Ар 3-6</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">8.34</td>
-<td align="right">11.22</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">9.00</td>
-<td align="right">179.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Ар 6-9</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">7.14</td>
-<td align="right">10.58</td>
-<td align="right">0.00</td>
-<td align="right">2.0</td>
-<td align="right">4.00</td>
-<td align="right">7.00</td>
-<td align="right">207.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Ар 9-12</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">6.63</td>
-<td align="right">8.97</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">4.00</td>
-<td align="right">7.00</td>
-<td align="right">179.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Ар 12-15</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">7.21</td>
-<td align="right">9.56</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">7.00</td>
-<td align="right">236.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Ар 15-18</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">7.54</td>
-<td align="right">9.77</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">9.00</td>
-<td align="right">179.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Ар 18-21</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">8.02</td>
-<td align="right">10.71</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">9.00</td>
-<td align="right">236.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Ар 21-24</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">8.44</td>
-<td align="right">11.17</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">9.00</td>
-<td align="right">179.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Среднее значение Ар индекса…49</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">7.75</td>
-<td align="right">7.87</td>
-<td align="right">0.00</td>
-<td align="right">3.0</td>
-<td align="right">5.00</td>
-<td align="right">10.00</td>
-<td align="right">108.00</td>
-<td align="left">▇▁▁▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Медленная магнитная буря-1 Внезапная магнитная
-буря-2</td>
-<td align="right">5278</td>
-<td align="right">0.08</td>
-<td align="right">1.16</td>
-<td align="right">0.36</td>
-<td align="right">1.00</td>
-<td align="right">1.0</td>
-<td align="right">1.00</td>
-<td align="right">1.00</td>
-<td align="right">2.00</td>
-<td align="left">▇▁▁▁▂</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div id="преобразование-dst-индекса" class="section level2">
-<h2>Преобразование Dst индекса</h2>
-<pre class="r"><code>#Метод главных компонент 
-Dst_pca &lt;- WDC_Kyoto_Dst %&gt;% select(starts_with(&quot;H_&quot;)) %&gt;% scale() %&gt;% prcomp()
-summary(Dst_pca)</code></pre>
-<pre><code>## Importance of components:
-##                           PC1    PC2    PC3    PC4     PC5     PC6     PC7     PC8     PC9    PC10    PC11
-## Standard deviation     4.2766 1.6644 1.0932 0.7461 0.57604 0.45461 0.39727 0.34491 0.29912 0.25498 0.21681
-## Proportion of Variance 0.7621 0.1154 0.0498 0.0232 0.01383 0.00861 0.00658 0.00496 0.00373 0.00271 0.00196
-## Cumulative Proportion  0.7621 0.8775 0.9273 0.9505 0.96432 0.97293 0.97950 0.98446 0.98819 0.99090 0.99285
-##                           PC12    PC13    PC14    PC15    PC16    PC17    PC18    PC19   PC20    PC21    PC22
-## Standard deviation     0.18927 0.16376 0.14481 0.12753 0.11519 0.10486 0.09580 0.09169 0.0852 0.07985 0.07640
-## Proportion of Variance 0.00149 0.00112 0.00087 0.00068 0.00055 0.00046 0.00038 0.00035 0.0003 0.00027 0.00024
-## Cumulative Proportion  0.99435 0.99546 0.99634 0.99702 0.99757 0.99803 0.99841 0.99876 0.9991 0.99933 0.99957
-##                           PC23    PC24
-## Standard deviation     0.07300 0.07044
-## Proportion of Variance 0.00022 0.00021
-## Cumulative Proportion  0.99979 1.00000</code></pre>
-<pre class="r"><code>fviz_eig(Dst_pca, addlabels = T, 
-         xlab = &quot;&quot;, ylab = &quot;Процент дисперсии&quot;,
-         main = &quot;Объясненная дисперсия компонентов PCA&quot;)</code></pre>
-<p><img role="img" src="data:image/png;base64,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" width="672" /></p>
-<pre class="r"><code>#Преобразование WDC_Kyoto_Dst
-WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;% 
-  transmute(Date, Dst_mean,
-            Dst_var = Dst_max - Dst_min, #Размах значений Dst за сутки
-            Dst_level = factor(case_when(#Dst через факторную переменную
-              Dst_min &lt; -150 ~ &quot;Severe&quot;, 
-              Dst_min &lt; -100 ~ &quot;Major&quot;, 
-              Dst_min &lt; -50 ~ &quot;Moderate&quot;,  
-              Dst_min &lt; -20 ~ &quot;Weak&quot;,
-              TRUE ~ &quot;Quiet&quot;), 
-              levels = c(&quot;Quiet&quot;, &quot;Weak&quot;, &quot;Moderate&quot;, &quot;Major&quot;, &quot;Severe&quot;), ordered = TRUE)
-            ) %&gt;% bind_cols( # Dst через главные компоненты
-              as_tibble(Dst_pca$x) %&gt;% select(PC1, PC2) %&gt;% rename(Dst_PC1 = PC1, Dst_PC2 = PC2) )</code></pre>
-</div>
-<div id="подготовка-файла-для-анализа" class="section level2">
-<h2>Подготовка файла для анализа</h2>
-<pre class="r"><code>brain_data &lt;- brain_data_raw %&gt;% 
-  transmute(
-    Date = dmy(Дата), Month = as.factor(month(Date)), Year = as.factor(year(Date)), 
-    EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
-    #Разбивку по полу и возрастной группе рассмотрим позже:
-    #EMS_male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`, 
-    #EMS_male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`, 
-    #EMS_male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`, 
-    #EMS_female_1 = `Количество вызовов СМП с диагнозом ОНМК у женщин 25-44 лет`, 
-    #EMS_female_2 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`, 
-    #EMS_female_3 = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`, 
+            Sunspots = as.numeric(X5))
+
+# Data on local K index from the Irkutsk magnetic observatory (IRT)
+Sys.setlocale(&quot;LC_TIME&quot;, &quot;C&quot;) %&gt;% invisible()
+
+K_IRT &lt;- read_excel(&quot;data/raw/K_IRT/IRT_K_index.xlsx&quot;, skip = 5) 
+
+K_IRT %&gt;% 
+  transmute(Date = as.Date(`DA-MON-YR`, format = &quot;%d-%b-%y&quot;), 
+            K_00 = `0`, K_03 = `0.125`, K_06 = `0.25`, K_09 = `0.375`, 
+            K_12 = `0.5`, K_15 = `0.625`, K_18 = `0.75`, K_21 = `0.875`, 
+            K_Sum = SK) %&gt;%  
+  mutate(across(starts_with(&quot;K&quot;), ~ifelse(. == -1, NA, .)) ) %&gt;%  
+  rbind(
+    tibble(Date = seq.Date(from = as.Date(&quot;2021-01-01&quot;), to = as.Date(&quot;2022-12-31&quot;), by = &quot;day&quot;)) %&gt;% 
+    left_join( rbind( 
+      read_table(&quot;data/raw/K_IRT/IRT2021.txt&quot;, show_col_types = FALSE, col_names = FALSE, skip = 1) %&gt;%  
+        distinct() %&gt;% filter(!is.na(X3)), 
+      read_table(&quot;data/raw/K_IRT/IRT2022.txt&quot;, show_col_types = FALSE, col_names = FALSE, skip = 1) %&gt;%  
+        distinct() %&gt;% filter(!is.na(X3))
+      ) %&gt;% 
+        transmute( Date = X1, Point = paste0(&quot;K_&quot;, substr(X2, 1, 2)), 
+                   K_IRT = as.numeric(gsub(&quot;;&quot;, &quot;&quot;, X4)) ) %&gt;%  
+        pivot_wider( names_from = Point, values_from = K_IRT ) %&gt;% 
+        rowwise() %&gt;% 
+        mutate( across(starts_with(&quot;K&quot;), ~ifelse(. == -1, NA, .)), 
+          K_Sum = sum(c_across(starts_with(&quot;K&quot;)), na.rm = FALSE) ) %&gt;% 
+        ungroup(), 
+      by = join_by(Date)) 
+    ) %&gt;% 
+  select(Date, K_Sum) -&gt; K_IRT
     
-    #Пропуски в данных заменяем на среднее по соседним значениям:
+# Production calendar in Russia (2006 - 2022)
+Calendar &lt;- read_csv(&quot;data/raw/Calendar.csv&quot;) %&gt;% 
+  mutate(across(c(Season, Month, DayOff), as.factor))</code></pre>
+</div>
+<div id="data-merging" class="section level2">
+<h2>Data Merging</h2>
+<pre class="r"><code># Ambulance Data related to acute cerebrovascular accidents
+brain_data &lt;- brain_data_raw %&gt;% 
+  transmute(
+    Date = dmy(Дата), EMS = `Вызов СМП с диагнозом ОНМК у всех пациентов старше 25 лет`, 
+    ## Missing data are replaced with the mean of neighboring values
     F10.7 = `Cкорректированный (F10.7)` %&gt;% na.approx(na.rm = FALSE), 
     Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
     Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %&gt;%  
-      ifelse(. &lt; 600, NA, .) %&gt;% na.approx(na.rm = FALSE),
-    
-    #Данные о количестве умерших не используем из-за большого количества пропусков
-  
-  ) %&gt;% 
+      ifelse(. &lt; 600, NA, .) %&gt;% na.approx(na.rm = FALSE) ) %&gt;% 
   filter(!is.na(Date)) %&gt;%
-  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %&gt;%  #Данные о температуре и осадках
-  left_join(SIDC_SILSO, by = join_by(Date)) %&gt;%   #Данные о солнечных пятнах
-  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %&gt;%  #Данные о индексе Ap 
-  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %&gt;%  #Данные о индексе Dst 
-  left_join(Obs_Ebre_SSC, by = join_by(Date)) %&gt;%  #Данные о магнитных бурях
-  mutate( across( starts_with(&quot;Sud&quot;), ~ factor( case_when(is.na(.) ~ &quot;No&quot;,
-                                                             TRUE ~ &quot;Yes&quot;) ) ) )  </code></pre>
+  left_join(Calendar, by = join_by(Date)) %&gt;%  ## Calendar data
+  left_join(GFZ_Potsdam_Kp, by = join_by(Date)) %&gt;%  ## Planetary K-index
+  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %&gt;%  ## Ap Index
+  left_join(K_IRT, by = join_by(Date)) %&gt;%  ## IRT K-index
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %&gt;%  ## Sudden Impulse/Storm Commencement
+  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %&gt;%  ## Temperature &amp; Precipitation
+  left_join(SIDC_SILSO, by = join_by(Date)) %&gt;%   ## Sunspots
+  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %&gt;%  ## Disturbance Storm-Time (Dst) 
+  mutate(COVID = as.factor(ifelse(Date &gt;= &quot;2020-03-27&quot;, &quot;Yes&quot;, &quot;No&quot;))) %&gt;% 
+  select(Date, Year, Season, Month, DayOff, COVID, Temp_mean, Temp_min, Temp_max, H2O, Wind, Pressure,
+         Sunspots, F10.7, Sudden_Start, Kp_Sum, Ap_mean, K_Sum,  Dst_mean, Dst_var, Dst_level, EMS)
+
+# Ambulance Data related to cardiovascular diseases
+heart_data &lt;- brain_data %&gt;% 
+  select(!EMS) %&gt;% 
+  left_join(
+    heart_data_raw %&gt;% 
+      transmute( 
+        Date = seq.Date(from = as.Date(&quot;2006-11-29&quot;), by = &quot;day&quot;, length.out = n()), 
+        EMS_UA = `Вызова СМП с диагнозом НС у всех пациентов старше 25 лет`,  ## Unstable angina
+        EMS_AMI = `Вызова СМП с диагнозом ОИМ у всех пациентов старше 25 лет`), ## Acute Myocardial Infarction
+    by = join_by(Date)) </code></pre>
 </div>
-<div id="оценка-преобразованного-файла" class="section level2">
-<h2>Оценка преобразованного файла</h2>
-<pre class="r"><code>skim(brain_data)</code></pre>
+<div id="pivot-tables" class="section level2">
+<h2>Pivot Tables</h2>
+<pre class="r"><code># Ambulance Data related to acute cerebrovascular accidents
+brain_data_long &lt;- brain_data_raw %&gt;% 
+  transmute(
+    Date = dmy(Дата),
+    ## Ambulance data by gender and age
+    EMS_Male_1 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 25-44 лет`,
+    EMS_Male_2 = `Количество вызовов СМП с диагнозом ОНМК у мужчин 45-54 лет`,
+    EMS_Male_3 = `Количество вызовов СМП с диагнозом ОНМК у мужчин старше 55 лет`,
+    EMS_Female_1 = `Количество вызовов СМП с диагнозом ОНМК у женщин 25-44 лет`,
+    EMS_Female_2 = `Количество вызовов СМП с диагнозом ОНМК у женщин 45-54 лет`,
+    EMS_Female_3 = `Количество вызовов СМП с диагнозом ОНМК у женщин старше 55 лет`,
+    ## Missing data are replaced with the mean of neighboring values
+    F10.7 = `Cкорректированный (F10.7)` %&gt;% na.approx(na.rm = FALSE), 
+    Wind = ifelse(is.na(`Скорость ветра`), na.approx(`Скорость ветра`, na.rm = FALSE), `Скорость ветра`), 
+    Pressure = `Атмосферное давление в среднем за сутки, С (Т)` %&gt;%  
+      ifelse(. &lt; 600, NA, .) %&gt;% na.approx(na.rm = FALSE) ) %&gt;% 
+  filter(!is.na(Date)) %&gt;%
+  left_join(Calendar, by = join_by(Date)) %&gt;%  ## Calendar data
+  left_join(GFZ_Potsdam_Kp, by = join_by(Date)) %&gt;%  ## Planetary K-index
+  left_join(GFZ_Potsdam_Ap, by = join_by(Date)) %&gt;%  ## Ap Index
+  left_join(K_IRT, by = join_by(Date)) %&gt;%  ## IRT K-index
+  left_join(Obs_Ebre_SSC, by = join_by(Date)) %&gt;%  ## Sudden Impulse/Storm Commencement
+  left_join(Roshydromet_Irkutsk, by = join_by(Date)) %&gt;%  ## Temperature &amp; Precipitation
+  left_join(SIDC_SILSO, by = join_by(Date)) %&gt;%   ## Sunspots
+  left_join(WDC_Kyoto_Dst, by = join_by(Date)) %&gt;%  ## Disturbance Storm-Time (Dst) 
+  mutate(COVID = as.factor(ifelse(Date &gt;= &quot;2020-03-27&quot;, &quot;Yes&quot;, &quot;No&quot;))) %&gt;% 
+  select(Date, Year, Season, Month, DayOff, COVID, Temp_mean, Temp_min, Temp_max, H2O, Wind, Pressure,
+         Sunspots, F10.7, Sudden_Start, Kp_Sum, Ap_mean, K_Sum,  Dst_mean, Dst_var, Dst_level, 
+         EMS_Male_1, EMS_Male_2, EMS_Male_3, EMS_Female_1, EMS_Female_2, EMS_Female_3) %&gt;% 
+  ## Long data format, 1 day - 6 rows
+  pivot_longer(cols = starts_with(&quot;EMS_&quot;), 
+               names_to = c(&quot;Sex&quot;, &quot;Age&quot;), 
+               names_pattern = &quot;EMS_(Male|Female)_(1|2|3)&quot;, 
+               values_to = &quot;EMS&quot;) %&gt;% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+         Age == 1 ~ &quot;25-44&quot;, Age == 2 ~ &quot;45-54&quot;, Age == 3 ~ &quot;55+&quot;))) 
+
+
+# Ambulance Data  related to unstable angina
+UA_data_long &lt;- brain_data %&gt;% 
+  select(!EMS) %&gt;% 
+  left_join(
+    heart_data_raw %&gt;% 
+      transmute( 
+        Date = seq.Date(from = as.Date(&quot;2006-11-29&quot;), by = &quot;day&quot;, length.out = n()), 
+        ## Ambulance data by gender and age
+        EMS_Male_1 = `Количество вызовов СМП с диагнозом НС у мужчин 25-44 лет`,
+        EMS_Male_2 = `Количество вызовов СМП с диагнозом НС у мужчин 45-54 лет`,
+        EMS_Male_3 = `Количество вызовов СМП с диагнозом НС у мужчин старше 55 лет`,
+        EMS_Female_1 = `Количество вызовов СМП с диагнозом НС у женщин 25-44 лет`,
+        EMS_Female_2 = `Количество вызовов СМП с диагнозом НС у женщин 45-54 лет`,
+        EMS_Female_3 = `Количество вызовов СМП с диагнозом НС у женщин старше 55 лет`),
+    by = join_by(Date)) %&gt;% 
+  ## Long data format, 1 day - 6 rows
+  pivot_longer(cols = starts_with(&quot;EMS_&quot;), 
+               names_to = c(&quot;Sex&quot;, &quot;Age&quot;), 
+               names_pattern = &quot;EMS_(Male|Female)_(1|2|3)&quot;, 
+               values_to = &quot;EMS&quot;) %&gt;% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+         Age == 1 ~ &quot;25-44&quot;, Age == 2 ~ &quot;45-54&quot;, Age == 3 ~ &quot;55+&quot;))) 
+
+
+# Ambulance Data related to acute myocardial infarction
+AMI_data_long &lt;- brain_data %&gt;% 
+  select(!EMS) %&gt;% 
+  left_join(
+    heart_data_raw %&gt;% 
+      transmute( 
+        Date = seq.Date(from = as.Date(&quot;2006-11-29&quot;), by = &quot;day&quot;, length.out = n()), 
+        ## Ambulance data by gender and age
+        EMS_Male_1 = `Количество вызовов СМП с диагнозом ОИМ у мужчин 25-44 лет`,
+        EMS_Male_2 = `Количество вызовов СМП с диагнозом ОИМ у мужчин 45-54 лет`,
+        EMS_Male_3 = `Количество вызовов СМП с диагнозом ОИМ у мужчин старше 55 лет`,
+        EMS_Female_1 = `Количество вызовов СМП с диагнозом ОИМ у женщин 25-44 лет`,
+        EMS_Female_2 = `Количество вызовов СМП с диагнозом ОИМ у женщин 45-54 лет`,
+        EMS_Female_3 = `Количество вызовов СМП с диагнозом ОИМ у женщин старше 55 лет` ),
+    by = join_by(Date)) %&gt;% 
+  ## Long data format, 1 day - 6 rows
+  pivot_longer(cols = starts_with(&quot;EMS_&quot;), 
+               names_to = c(&quot;Sex&quot;, &quot;Age&quot;), 
+               names_pattern = &quot;EMS_(Male|Female)_(1|2|3)&quot;, 
+               values_to = &quot;EMS&quot;) %&gt;% 
+  mutate(Sex = as.factor(Sex), 
+         Age = as.factor(case_when(
+         Age == 1 ~ &quot;25-44&quot;, Age == 2 ~ &quot;45-54&quot;, Age == 3 ~ &quot;55+&quot;))) </code></pre>
+</div>
+<div id="overview-of-tables" class="section level2">
+<h2>Overview of Tables</h2>
+<pre class="r"><code>skim(heart_data)</code></pre>
 <table>
 <caption>Data summary</caption>
 <tbody>
 <tr class="odd">
 <td align="left">Name</td>
-<td align="left">brain_data</td>
+<td align="left">heart_data</td>
 </tr>
 <tr class="even">
 <td align="left">Number of rows</td>
@@ -1287,7 +608,7 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 </tr>
 <tr class="odd">
 <td align="left">Number of columns</td>
-<td align="left">20</td>
+<td align="left">23</td>
 </tr>
 <tr class="even">
 <td align="left">_______________________</td>
@@ -1303,11 +624,11 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 </tr>
 <tr class="odd">
 <td align="left">factor</td>
-<td align="left">5</td>
+<td align="left">6</td>
 </tr>
 <tr class="even">
 <td align="left">numeric</td>
-<td align="left">14</td>
+<td align="left">16</td>
 </tr>
 <tr class="odd">
 <td align="left">________________________</td>
@@ -1361,7 +682,7 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 <col width="14%" />
 <col width="8%" />
 <col width="9%" />
-<col width="42%" />
+<col width="43%" />
 </colgroup>
 <thead>
 <tr class="header">
@@ -1375,22 +696,46 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 </thead>
 <tbody>
 <tr class="odd">
+<td align="left">Season</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">4</td>
+<td align="left">Spr: 1472, Sum: 1455, Win: 1444, Aut: 1366</td>
+</tr>
+<tr class="even">
 <td align="left">Month</td>
 <td align="right">0</td>
 <td align="right">1</td>
 <td align="left">FALSE</td>
 <td align="right">12</td>
-<td align="left">1: 496, 3: 496, 5: 496, 7: 496</td>
+<td align="left">Dec: 496, Jan: 496, Jul: 496, Mar: 496</td>
 </tr>
-<tr class="even">
-<td align="left">Year</td>
+<tr class="odd">
+<td align="left">DayOff</td>
 <td align="right">0</td>
 <td align="right">1</td>
 <td align="left">FALSE</td>
-<td align="right">17</td>
-<td align="left">200: 366, 201: 366, 201: 366, 202: 366</td>
+<td align="right">2</td>
+<td align="left">No: 3852, Yes: 1885</td>
+</tr>
+<tr class="even">
+<td align="left">COVID</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">No: 4866, Yes: 871</td>
 </tr>
 <tr class="odd">
+<td align="left">Sudden_Start</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">No: 5543, Yes: 194</td>
+</tr>
+<tr class="even">
 <td align="left">Dst_level</td>
 <td align="right">0</td>
 <td align="right">1</td>
@@ -1398,37 +743,21 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 <td align="right">5</td>
 <td align="left">Qui: 3507, Wea: 1868, Mod: 325, Maj: 30</td>
 </tr>
-<tr class="even">
-<td align="left">Sud_Imp</td>
-<td align="right">0</td>
-<td align="right">1</td>
-<td align="left">FALSE</td>
-<td align="right">2</td>
-<td align="left">No: 5667, Yes: 70</td>
-</tr>
-<tr class="odd">
-<td align="left">Sud_Storm</td>
-<td align="right">0</td>
-<td align="right">1</td>
-<td align="left">FALSE</td>
-<td align="right">2</td>
-<td align="left">No: 5611, Yes: 126</td>
-</tr>
 </tbody>
 </table>
 <p><strong>Variable type: numeric</strong></p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col width="15%" />
+<col width="14%" />
 <col width="10%" />
-<col width="15%" />
-<col width="7%" />
-<col width="6%" />
+<col width="14%" />
 <col width="8%" />
+<col width="6%" />
 <col width="7%" />
-<col width="7%" />
-<col width="7%" />
-<col width="7%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
 <col width="6%" />
 </colgroup>
 <thead>
@@ -1448,134 +777,160 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 </thead>
 <tbody>
 <tr class="odd">
-<td align="left">EMS</td>
+<td align="left">Year</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
-<td align="right">12.57</td>
-<td align="right">6.23</td>
-<td align="right">0.00</td>
-<td align="right">8.00</td>
-<td align="right">12.00</td>
-<td align="right">17.00</td>
-<td align="right">40.00</td>
-<td align="left">▅▇▅▁▁</td>
+<td align="right">2014.27</td>
+<td align="right">4.54</td>
+<td align="right">2006.0</td>
+<td align="right">2010.00</td>
+<td align="right">2014.00</td>
+<td align="right">2018.00</td>
+<td align="right">2022.00</td>
+<td align="left">▇▆▆▆▇</td>
 </tr>
 <tr class="even">
-<td align="left">F10.7</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">92.61</td>
-<td align="right">28.42</td>
-<td align="right">63.40</td>
-<td align="right">70.40</td>
-<td align="right">79.50</td>
-<td align="right">109.10</td>
-<td align="right">255.00</td>
-<td align="left">▇▂▁▁▁</td>
-</tr>
-<tr class="odd">
-<td align="left">Wind</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">3.10</td>
-<td align="right">1.43</td>
-<td align="right">0.00</td>
-<td align="right">2.00</td>
-<td align="right">3.00</td>
-<td align="right">4.00</td>
-<td align="right">12.00</td>
-<td align="left">▇▇▂▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">Pressure</td>
-<td align="right">914</td>
-<td align="right">0.84</td>
-<td align="right">722.06</td>
-<td align="right">7.04</td>
-<td align="right">703.80</td>
-<td align="right">716.80</td>
-<td align="right">721.30</td>
-<td align="right">726.85</td>
-<td align="right">748.40</td>
-<td align="left">▁▇▆▂▁</td>
-</tr>
-<tr class="odd">
 <td align="left">Temp_mean</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">1.69</td>
 <td align="right">13.72</td>
-<td align="right">-34.20</td>
+<td align="right">-34.2</td>
 <td align="right">-9.80</td>
 <td align="right">3.50</td>
 <td align="right">13.90</td>
 <td align="right">25.80</td>
 <td align="left">▁▆▆▇▇</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td align="left">Temp_min</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">-3.33</td>
 <td align="right">13.14</td>
-<td align="right">-38.60</td>
+<td align="right">-38.6</td>
 <td align="right">-14.00</td>
 <td align="right">-1.30</td>
 <td align="right">8.00</td>
 <td align="right">20.40</td>
 <td align="left">▁▅▆▇▆</td>
 </tr>
-<tr class="odd">
+<tr class="even">
 <td align="left">Temp_max</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">7.91</td>
 <td align="right">14.65</td>
-<td align="right">-30.40</td>
+<td align="right">-30.4</td>
 <td align="right">-4.70</td>
 <td align="right">9.30</td>
 <td align="right">21.10</td>
 <td align="right">35.60</td>
 <td align="left">▁▆▆▇▆</td>
 </tr>
-<tr class="even">
+<tr class="odd">
 <td align="left">H2O</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">1.28</td>
 <td align="right">4.33</td>
-<td align="right">0.00</td>
+<td align="right">0.0</td>
 <td align="right">0.00</td>
 <td align="right">0.00</td>
 <td align="right">0.70</td>
 <td align="right">80.10</td>
 <td align="left">▇▁▁▁▁</td>
 </tr>
+<tr class="even">
+<td align="left">Wind</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">3.10</td>
+<td align="right">1.43</td>
+<td align="right">0.0</td>
+<td align="right">2.00</td>
+<td align="right">3.00</td>
+<td align="right">4.00</td>
+<td align="right">12.00</td>
+<td align="left">▇▇▂▁▁</td>
+</tr>
 <tr class="odd">
+<td align="left">Pressure</td>
+<td align="right">914</td>
+<td align="right">0.84</td>
+<td align="right">722.06</td>
+<td align="right">7.04</td>
+<td align="right">703.8</td>
+<td align="right">716.80</td>
+<td align="right">721.30</td>
+<td align="right">726.85</td>
+<td align="right">748.40</td>
+<td align="left">▁▇▆▂▁</td>
+</tr>
+<tr class="even">
 <td align="left">Sunspots</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">41.31</td>
 <td align="right">44.75</td>
-<td align="right">0.00</td>
+<td align="right">0.0</td>
 <td align="right">0.00</td>
 <td align="right">25.00</td>
 <td align="right">68.00</td>
 <td align="right">220.00</td>
 <td align="left">▇▂▂▁▁</td>
 </tr>
+<tr class="odd">
+<td align="left">F10.7</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">92.61</td>
+<td align="right">28.42</td>
+<td align="right">63.4</td>
+<td align="right">70.40</td>
+<td align="right">79.50</td>
+<td align="right">109.10</td>
+<td align="right">255.00</td>
+<td align="left">▇▂▁▁▁</td>
+</tr>
 <tr class="even">
+<td align="left">Kp_Sum</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">12.26</td>
+<td align="right">7.84</td>
+<td align="right">0.0</td>
+<td align="right">6.33</td>
+<td align="right">10.67</td>
+<td align="right">17.00</td>
+<td align="right">48.67</td>
+<td align="left">▇▆▂▁▁</td>
+</tr>
+<tr class="odd">
 <td align="left">Ap_mean</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
 <td align="right">7.75</td>
 <td align="right">7.86</td>
-<td align="right">0.00</td>
+<td align="right">0.0</td>
 <td align="right">3.00</td>
 <td align="right">5.00</td>
 <td align="right">10.00</td>
 <td align="right">108.00</td>
 <td align="left">▇▁▁▁▁</td>
+</tr>
+<tr class="even">
+<td align="left">K_Sum</td>
+<td align="right">24</td>
+<td align="right">1.00</td>
+<td align="right">11.99</td>
+<td align="right">7.29</td>
+<td align="right">0.0</td>
+<td align="right">6.00</td>
+<td align="right">11.00</td>
+<td align="right">17.00</td>
+<td align="right">40.00</td>
+<td align="left">▇▇▅▁▁</td>
 </tr>
 <tr class="odd">
 <td align="left">Dst_mean</td>
@@ -1583,7 +938,7 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 <td align="right">1.00</td>
 <td align="right">-9.90</td>
 <td align="right">13.28</td>
-<td align="right">-127.00</td>
+<td align="right">-127.0</td>
 <td align="right">-16.00</td>
 <td align="right">-8.00</td>
 <td align="right">-1.00</td>
@@ -1596,7 +951,7 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 <td align="right">1.00</td>
 <td align="right">20.99</td>
 <td align="right">15.45</td>
-<td align="right">4.00</td>
+<td align="right">4.0</td>
 <td align="right">12.00</td>
 <td align="right">17.00</td>
 <td align="right">24.00</td>
@@ -1604,45 +959,456 @@ WDC_Kyoto_Dst &lt;- WDC_Kyoto_Dst %&gt;%
 <td align="left">▇▁▁▁▁</td>
 </tr>
 <tr class="odd">
-<td align="left">Dst_PC1</td>
+<td align="left">EMS_UA</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
-<td align="right">0.00</td>
-<td align="right">4.30</td>
-<td align="right">-37.89</td>
-<td align="right">-1.87</td>
-<td align="right">0.78</td>
-<td align="right">2.85</td>
-<td align="right">10.22</td>
-<td align="left">▁▁▁▇▇</td>
+<td align="right">11.25</td>
+<td align="right">5.10</td>
+<td align="right">0.0</td>
+<td align="right">8.00</td>
+<td align="right">11.00</td>
+<td align="right">14.00</td>
+<td align="right">34.00</td>
+<td align="left">▃▇▃▁▁</td>
 </tr>
 <tr class="even">
-<td align="left">Dst_PC2</td>
+<td align="left">EMS_AMI</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
+<td align="right">3.62</td>
+<td align="right">2.23</td>
+<td align="right">0.0</td>
+<td align="right">2.00</td>
+<td align="right">3.00</td>
+<td align="right">5.00</td>
+<td align="right">22.00</td>
+<td align="left">▇▃▁▁▁</td>
+</tr>
+</tbody>
+</table>
+<pre class="r"><code>skim(brain_data_long)</code></pre>
+<table>
+<caption>Data summary</caption>
+<tbody>
+<tr class="odd">
+<td align="left">Name</td>
+<td align="left">brain_data_long</td>
+</tr>
+<tr class="even">
+<td align="left">Number of rows</td>
+<td align="left">34422</td>
+</tr>
+<tr class="odd">
+<td align="left">Number of columns</td>
+<td align="left">24</td>
+</tr>
+<tr class="even">
+<td align="left">_______________________</td>
+<td align="left"></td>
+</tr>
+<tr class="odd">
+<td align="left">Column type frequency:</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left">Date</td>
+<td align="left">1</td>
+</tr>
+<tr class="odd">
+<td align="left">factor</td>
+<td align="left">8</td>
+</tr>
+<tr class="even">
+<td align="left">numeric</td>
+<td align="left">15</td>
+</tr>
+<tr class="odd">
+<td align="left">________________________</td>
+<td align="left"></td>
+</tr>
+<tr class="even">
+<td align="left">Group variables</td>
+<td align="left">None</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Variable type: Date</strong></p>
+<table>
+<colgroup>
+<col width="17%" />
+<col width="12%" />
+<col width="17%" />
+<col width="13%" />
+<col width="13%" />
+<col width="13%" />
+<col width="11%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">skim_variable</th>
+<th align="right">n_missing</th>
+<th align="right">complete_rate</th>
+<th align="left">min</th>
+<th align="left">max</th>
+<th align="left">median</th>
+<th align="right">n_unique</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Date</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">2006-11-30</td>
+<td align="left">2022-08-14</td>
+<td align="left">2014-10-07</td>
+<td align="right">5737</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Variable type: factor</strong></p>
+<table>
+<colgroup>
+<col width="14%" />
+<col width="10%" />
+<col width="14%" />
+<col width="8%" />
+<col width="9%" />
+<col width="44%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">skim_variable</th>
+<th align="right">n_missing</th>
+<th align="right">complete_rate</th>
+<th align="left">ordered</th>
+<th align="right">n_unique</th>
+<th align="left">top_counts</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Season</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">4</td>
+<td align="left">Spr: 8832, Sum: 8730, Win: 8664, Aut: 8196</td>
+</tr>
+<tr class="even">
+<td align="left">Month</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">12</td>
+<td align="left">Dec: 2976, Jan: 2976, Jul: 2976, Mar: 2976</td>
+</tr>
+<tr class="odd">
+<td align="left">DayOff</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">No: 23112, Yes: 11310</td>
+</tr>
+<tr class="even">
+<td align="left">COVID</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">No: 29196, Yes: 5226</td>
+</tr>
+<tr class="odd">
+<td align="left">Sudden_Start</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">No: 33258, Yes: 1164</td>
+</tr>
+<tr class="even">
+<td align="left">Dst_level</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">TRUE</td>
+<td align="right">5</td>
+<td align="left">Qui: 21042, Wea: 11208, Mod: 1950, Maj: 180</td>
+</tr>
+<tr class="odd">
+<td align="left">Sex</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">2</td>
+<td align="left">Fem: 17211, Mal: 17211</td>
+</tr>
+<tr class="even">
+<td align="left">Age</td>
+<td align="right">0</td>
+<td align="right">1</td>
+<td align="left">FALSE</td>
+<td align="right">3</td>
+<td align="left">25-: 11474, 45-: 11474, 55+: 11474</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Variable type: numeric</strong></p>
+<table>
+<colgroup>
+<col width="14%" />
+<col width="10%" />
+<col width="14%" />
+<col width="8%" />
+<col width="6%" />
+<col width="7%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
+<col width="8%" />
+<col width="6%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th align="left">skim_variable</th>
+<th align="right">n_missing</th>
+<th align="right">complete_rate</th>
+<th align="right">mean</th>
+<th align="right">sd</th>
+<th align="right">p0</th>
+<th align="right">p25</th>
+<th align="right">p50</th>
+<th align="right">p75</th>
+<th align="right">p100</th>
+<th align="left">hist</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">Year</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">2014.27</td>
+<td align="right">4.54</td>
+<td align="right">2006.0</td>
+<td align="right">2010.00</td>
+<td align="right">2014.00</td>
+<td align="right">2018.00</td>
+<td align="right">2022.00</td>
+<td align="left">▇▆▆▆▇</td>
+</tr>
+<tr class="even">
+<td align="left">Temp_mean</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">1.69</td>
+<td align="right">13.71</td>
+<td align="right">-34.2</td>
+<td align="right">-9.80</td>
+<td align="right">3.50</td>
+<td align="right">13.90</td>
+<td align="right">25.80</td>
+<td align="left">▁▆▆▇▇</td>
+</tr>
+<tr class="odd">
+<td align="left">Temp_min</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">-3.33</td>
+<td align="right">13.14</td>
+<td align="right">-38.6</td>
+<td align="right">-14.00</td>
+<td align="right">-1.30</td>
+<td align="right">8.00</td>
+<td align="right">20.40</td>
+<td align="left">▁▅▆▇▆</td>
+</tr>
+<tr class="even">
+<td align="left">Temp_max</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">7.91</td>
+<td align="right">14.65</td>
+<td align="right">-30.4</td>
+<td align="right">-4.70</td>
+<td align="right">9.30</td>
+<td align="right">21.10</td>
+<td align="right">35.60</td>
+<td align="left">▁▆▆▇▆</td>
+</tr>
+<tr class="odd">
+<td align="left">H2O</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">1.28</td>
+<td align="right">4.33</td>
+<td align="right">0.0</td>
 <td align="right">0.00</td>
-<td align="right">1.67</td>
-<td align="right">-11.21</td>
-<td align="right">-0.80</td>
-<td align="right">-0.16</td>
-<td align="right">0.54</td>
-<td align="right">25.51</td>
-<td align="left">▁▇▁▁▁</td>
+<td align="right">0.00</td>
+<td align="right">0.70</td>
+<td align="right">80.10</td>
+<td align="left">▇▁▁▁▁</td>
+</tr>
+<tr class="even">
+<td align="left">Wind</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">3.10</td>
+<td align="right">1.43</td>
+<td align="right">0.0</td>
+<td align="right">2.00</td>
+<td align="right">3.00</td>
+<td align="right">4.00</td>
+<td align="right">12.00</td>
+<td align="left">▇▇▂▁▁</td>
+</tr>
+<tr class="odd">
+<td align="left">Pressure</td>
+<td align="right">5484</td>
+<td align="right">0.84</td>
+<td align="right">722.06</td>
+<td align="right">7.04</td>
+<td align="right">703.8</td>
+<td align="right">716.80</td>
+<td align="right">721.30</td>
+<td align="right">726.85</td>
+<td align="right">748.40</td>
+<td align="left">▁▇▆▂▁</td>
+</tr>
+<tr class="even">
+<td align="left">Sunspots</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">41.31</td>
+<td align="right">44.74</td>
+<td align="right">0.0</td>
+<td align="right">0.00</td>
+<td align="right">25.00</td>
+<td align="right">68.00</td>
+<td align="right">220.00</td>
+<td align="left">▇▂▂▁▁</td>
+</tr>
+<tr class="odd">
+<td align="left">F10.7</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">92.61</td>
+<td align="right">28.42</td>
+<td align="right">63.4</td>
+<td align="right">70.40</td>
+<td align="right">79.50</td>
+<td align="right">109.10</td>
+<td align="right">255.00</td>
+<td align="left">▇▂▁▁▁</td>
+</tr>
+<tr class="even">
+<td align="left">Kp_Sum</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">12.26</td>
+<td align="right">7.84</td>
+<td align="right">0.0</td>
+<td align="right">6.33</td>
+<td align="right">10.67</td>
+<td align="right">17.00</td>
+<td align="right">48.67</td>
+<td align="left">▇▆▂▁▁</td>
+</tr>
+<tr class="odd">
+<td align="left">Ap_mean</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">7.75</td>
+<td align="right">7.86</td>
+<td align="right">0.0</td>
+<td align="right">3.00</td>
+<td align="right">5.00</td>
+<td align="right">10.00</td>
+<td align="right">108.00</td>
+<td align="left">▇▁▁▁▁</td>
+</tr>
+<tr class="even">
+<td align="left">K_Sum</td>
+<td align="right">144</td>
+<td align="right">1.00</td>
+<td align="right">11.99</td>
+<td align="right">7.29</td>
+<td align="right">0.0</td>
+<td align="right">6.00</td>
+<td align="right">11.00</td>
+<td align="right">17.00</td>
+<td align="right">40.00</td>
+<td align="left">▇▇▅▁▁</td>
+</tr>
+<tr class="odd">
+<td align="left">Dst_mean</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">-9.90</td>
+<td align="right">13.28</td>
+<td align="right">-127.0</td>
+<td align="right">-16.00</td>
+<td align="right">-8.00</td>
+<td align="right">-1.00</td>
+<td align="right">21.00</td>
+<td align="left">▁▁▁▆▇</td>
+</tr>
+<tr class="even">
+<td align="left">Dst_var</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">20.99</td>
+<td align="right">15.45</td>
+<td align="right">4.0</td>
+<td align="right">12.00</td>
+<td align="right">17.00</td>
+<td align="right">24.00</td>
+<td align="right">279.00</td>
+<td align="left">▇▁▁▁▁</td>
+</tr>
+<tr class="odd">
+<td align="left">EMS</td>
+<td align="right">0</td>
+<td align="right">1.00</td>
+<td align="right">2.09</td>
+<td align="right">2.75</td>
+<td align="right">0.0</td>
+<td align="right">0.00</td>
+<td align="right">1.00</td>
+<td align="right">3.00</td>
+<td align="right">22.00</td>
+<td align="left">▇▁▁▁▁</td>
 </tr>
 </tbody>
 </table>
 </div>
-<div id="записьчтение-преобразованного-файла" class="section level2">
-<h2>Запись/чтение преобразованного файла</h2>
-<pre class="r"><code>#Локальное храненение данных 
+<div id="files-reading-and-writing" class="section level2">
+<h2>Files Reading and Writing</h2>
+<pre class="r"><code>#Local data storage 
 write_csv(brain_data, &quot;data/raw/brain_data.csv&quot;) 
+write_csv(heart_data, &quot;data/raw/heart_data.csv&quot;) 
+write_csv(brain_data_long, &quot;data/raw/brain_data_long.csv&quot;) 
+write_csv(UA_data_long, &quot;data/raw/UA_data_long.csv&quot;) 
+write_csv(AMI_data_long, &quot;data/raw/AMI_data_long.csv&quot;) 
 
-#Загрузка данных для анализа
+#Import data
+
+## Ambulance Data related to acute cerebrovascular accidents
 brain_data &lt;- read_csv(&quot;data/raw/brain_data.csv&quot;) %&gt;%
-   mutate(across(c(Month, Year, Sud_Imp, Sud_Storm), as.factor),
-          Dst_level = factor(Dst_level, 
-                             levels = c(&quot;Quiet&quot;, &quot;Weak&quot;, &quot;Moderate&quot;, &quot;Major&quot;, &quot;Severe&quot;),
-                             ordered = TRUE))</code></pre>
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data related to acute cerebrovascular accidents
+brain_data_long &lt;- read_csv(&quot;data/raw/brain_data_long.csv&quot;) %&gt;%
+    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+
+## Ambulance Data related to cardiovascular diseases
+heart_data &lt;- read_csv(&quot;data/raw/heart_data.csv&quot;) %&gt;%
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
+## Ambulance Long Data  related to unstable angina
+UA_data_long &lt;- read_csv(&quot;data/raw/UA_data_long.csv&quot;) %&gt;%
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+## Ambulance Long Data related to acute myocardial infarction
+AMI_data_long &lt;- read_csv(&quot;data/raw/AMI_data_long.csv&quot;) %&gt;%
+   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))</code></pre>
 </div>
 
 
