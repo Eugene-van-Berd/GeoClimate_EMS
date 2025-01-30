@@ -51,20 +51,11 @@ brain_data <- read_csv("data/raw/brain_data.csv") %>%
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
-## Ambulance Data related to cardiovascular diseases
-heart_data <- read_csv("data/raw/heart_data.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
-## Ambulance Long Data  related to unstable angina
-UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
-## Ambulance Long Data related to acute myocardial infarction
-AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
-
 ```
 
-## Correlation of qualitative variables
+## Correlation of quantitative variables
 
+Our dataset contains a large number of quantitative variables:
 ```{r ggpairs, fig.height=20, fig.width=30, message=FALSE}
 
 # Data preprocessing
@@ -117,7 +108,11 @@ theme_custom +
 
 ```
 
-```{r cor_data, fig.width=10, message=FALSE}
+When analyzing the network graph, three groups of features can be identified:
+- Climatic: temperature, pressure, wind, precipitation;
+- Geomagnetic: Dst index, Ap index;
+- Solar: F10.7 index, number of sunspots.
+```{r network, fig.width=10, message=FALSE}
 
 cor_data <- brain_data %>% 
   select( where(is.numeric) & !ends_with(c("min", "max", "Sum", "var")) ) %>%
@@ -131,15 +126,11 @@ network_plot(cor_data, min_cor = .1)
 
 ```
 
-When analyzing the network graph, three groups of features can be identified:
-
-- Climatic: temperature, pressure, wind, precipitation;
-- Geomagnetic: Dst index, Ap index;
-- Solar: F10.7 index, number of sunspots.
-
 Additionally, some features within the groups exhibit a high degree of correlation!
-
-```{r geom_jitter, fig.width=10, message=FALSE}
+- A negative correlation was expected between the daily average temperature and pressure (r = -0.73).
+- The F10.7 index and the number of sunspots show a high correlation (r = 0.92), as both reflect solar activity but are measured using different methods.
+- The daily average Ap and Dst indices demonstrate a significant correlation (r = -0.70), as both reflect changes in the Earth's geomagnetic field. However, the distribution of data along the trend line remains uneven.
+```{r correlation, fig.width=10, message=FALSE}
 
 brain_data %>% 
   drop_na() %>% 
@@ -168,20 +159,30 @@ brain_data %>%
 
 
 ```
-
-- A negative correlation was expected between the daily average temperature and pressure (r = -0.73).
-- The F10.7 index and the number of sunspots show a high correlation (r = 0.92), as both reflect solar activity but are measured using different methods.
-- The daily average Ap and Dst indices demonstrate a significant correlation (r = -0.70), as both reflect changes in the Earth's geomagnetic field. However, the distribution of data along the trend line remains uneven.
-
 Based on further analysis, the following variables will be excluded:
-
 - **Pressure**: does not provide full coverage of the data throughout the study period and exhibits less variability compared to Temperature.
 - **F10.7 Index**: has an incomplete data set and exhibits less variability compared to Sunspot count.
 - The **Ap and Dst** geomagnetic activity indices will not be excluded.
 
-## Solar cycles
+However, all the variables considered do not have a noticeable relationship with the number of ambulance calls:
+```{r EMS, fig.height=10, fig.width=15, message=FALSE}
 
-```{r cycle, fig.height=8, fig.width=16}
+  brain_data %>% 
+  rename(Temperature = Temp_mean, `Ap index` = Ap_mean, `Dst index` = Dst_mean) %>% 
+  pivot_longer(cols = c(Temperature, Sunspots, `Ap index`, `Dst index`)) %>% 
+  ggplot(aes(x = value, y = EMS))+
+  geom_point()+
+  geom_smooth(se = FALSE, method = "gam", colour = "goldenrod2", linewidth = 2)+
+  theme_custom +
+  labs(x = "", y = "Daily Emergency Calls") +  
+  facet_wrap(~name, scales = "free")
+
+```
+
+## Data Decomposition 
+
+The number of sunspots is directly linked to the solar activity cycles, as confirmed by the graph:
+```{r sunspots, fig.height=8, fig.width=16}
 
 brain_data %>% 
   select(!c(Pressure, F10.7, Ap_mean)) %>% 
@@ -198,15 +199,10 @@ brain_data %>%
   theme_custom
 
 ```
+Our data covers the complete 24th solar cycle, spanning the period from 2009 to 2019.
 
-The number of sunspots is directly linked to the solar activity cycles, as confirmed by the graph.
-For further analysis, it is advisable to focus separately on the period from 2009 to 2019, which covers the complete 24th solar activity cycle.
-
-## Data Decomposition 
-
-Decomposition allows us to identify trends and cyclicity:
-
-```{r decompose, fig.height=15, fig.width=15}
+Working with time series allows us to decompose the data to identify trends and cyclic patterns:
+```{r decomposing, fig.height=15, fig.width=15}
 
 ggarrange(
 
@@ -243,8 +239,7 @@ ggarrange(
 )
 
 ```
-
-- After decomposing the **emergency medical call data**, a linear increase over time is observed. However, since 2020, a noticeable decrease is apparent, likely associated with the COVID-19 pandemic.
+- After decomposing the **emergency calls data**, a linear increase over time is observed. However, since 2020, a noticeable decrease is apparent, likely associated with the COVID-19 pandemic.
 - Climatic data (especially **temperature**), after decomposition, show a clear cyclic pattern.
 - The **daily Dst index** does not show any clear trends or cycles. However, the daily fluctuation **amplitude of the Dst index**, after decomposition, exhibits a trend similar to the dynamics of sunspot numbers. Nevertheless, since noise is the dominant component, the results should not be taken too seriously.
 
@@ -307,7 +302,7 @@ ggplot(brain_data, aes(x = DayOff, y = EMS)) +
             color = "black", size = 8, fontface = "bold", vjust = -1) +
   scale_fill_brewer(palette = "Dark2", direction = -1)+
   scale_y_continuous(limits = c(NA, max(brain_data$EMS) + 3))+
-  labs(y = "Number of Emergency Medical Calls", x = "Non-working Days")+
+  labs(y = "Daily Emergency Calls", x = "Non-working Days")+
   theme_custom +
   theme(legend.position = "none")+
   stat_pvalue_manual(t_test(data = brain_data,  EMS ~ DayOff),
@@ -316,7 +311,6 @@ ggplot(brain_data, aes(x = DayOff, y = EMS)) +
                      y.position = max(brain_data$EMS) + 0.1)
 
 ```
-
 - The difference between the average EMS values for weekdays and weekends is statistically significant.
 - The average EMS value is higher on weekdays (13.33) compared to weekends (11.02).
 
@@ -329,7 +323,7 @@ ggplot(aes(x = Season, y = EMS, fill = Season)) +
   geom_boxplot(alpha = 0.7, show.legend = FALSE) +
   scale_fill_manual(
     values = c("Winter" = "dodgerblue2", "Spring" = "palegreen2", "Summer" = "tan2","Autumn" = "tomato2")) +
-  labs(y = "Number of Emergency Medical Calls", x = "")+
+  labs(y = "Daily Emergency Calls", x = "")+
   theme_custom 
 
 brain_data %>%
@@ -339,7 +333,6 @@ brain_data %>%
   flextable() 
 
 ```
-
 The distribution of emergency medical service calls across seasons is statistically insignificant 
 (**paired t-test with Holm p-value adjustment method: p.adjusted > 0.05**).
 
@@ -370,168 +363,6 @@ brain_data %>%
                                                    "Kp_Sum" = "Daily Average Kp index")))
 
 ```
-
-## Общее распределение данных (индексы, солнечные пятна, плотность EMS)
-
-```{r}
-ggplot(brain_data, aes(x = Date, y = Dst_mean))+
-  geom_col()+
-    geom_smooth(method = "gam")
-
-ggplot(brain_data, aes(x = Date, y = Ap_mean))+
-  geom_col()+
-    geom_smooth(method = "gam")
-
-ggplot(brain_data, aes(x = Date, y = F10.7))+
-  geom_col()+
-    geom_smooth(method = "gam")
-
-ggplot(brain_data, aes(x = Date, y = Sunspots))+
-  geom_col()+
-    geom_smooth(method = "gam")
-```
-
-```{r}
-brain_data%>%
-  ggplot(aes(x = EMS))+
-  geom_density()+
-theme_custom
-```
-
-## Переменная ~ количество вызовой скорой
-
-```{r, heights=9, width=10}
-Ap_EMS <- ggplot(brain_data,
-       aes(x = `Ap_mean`,
-           y = `EMS`))+
-  geom_point()+
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")+
-  theme_custom
-
-Dst_EMS <- ggplot(brain_data,
-       aes(x = `Dst_mean`,
-           y = `EMS`))+
-  geom_point()+
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")+
-  theme_custom
-
-F10.7_EMS <- ggplot(brain_data,
-       aes(x = `F10.7`,
-           y = `EMS`))+
-  geom_point()+
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")+
-  theme_custom
-
-Sunsp_EMS <- ggplot(brain_data,
-       aes(x = `Sunspots`,
-           y = `EMS`))+
-  geom_point()+
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")+
-  theme_custom
-
-plot_all <- ggarrange(Ap_EMS, Dst_EMS, F10.7_EMS, Sunsp_EMS,
-                      ncol = 2,
-                      nrow = 2)
-ggsave("plot_all.png", plot = plot_all, width = 14, height = 8, dpi = 300)
-```
-
-
-```{r}
-ggplot(brain_data,
-       aes(x = `Temp_mean`,
-           y = `EMS`))+
-  geom_point()+
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-```
-
-## Распределение Dst по годам 2009-2010
-
-```{r}
-brain_data %>%
-   filter(Date %within% interval(ymd("2009-01-01"), ymd("2019-12-31"))) %>%
-  mutate(Year = year(Date)) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-    geom_smooth(se = FALSE,
-              method = "loess",
-              colour = "goldenrod1")+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-
-  facet_wrap(vars(Year), ncol = 1, nrow = 11, scales = "free_x") +
-  scale_y_continuous(limits = c(-150, 50))
-```
-
-## Dst по сезонам в течение 2015
-
-```{r}
-brain_data %>%
-  filter(Date %within% interval(ymd("2014-12-01"), ymd("2015-12-01"))) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-
-brain_data %>%
-  filter(Date %within% interval(ymd("2014-12-01"), ymd("2015-03-01"))) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-
-brain_data %>%
-  filter(Date %within% interval(ymd("2015-03-01"), ymd("2015-06-01"))) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-
-brain_data %>%
-  filter(Date %within% interval(ymd("2015-06-01"), ymd("2015-09-01"))) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-
-brain_data %>%
-  filter(Date %within% interval(ymd("2015-09-01"), ymd("2015-12-01"))) %>%
-ggplot(
-       aes(x = `Date`,
-           y = `Dst_mean`))+
-  geom_point()+
-  #geom_ribbon(aes(ymin = Dst_min, ymax = Dst_max), fill = "lightblue", alpha = 0.4) +
-  geom_smooth(se = FALSE,
-              method = "gam",
-              colour = "goldenrod1")
-```
-
 Daily Average Kp index and Daily Average K index (IRT) show a strong correlation **(r = 0.91)**.
 However, K index (IRT) has a smaller range and a more uniform distribution compared to Kp index.
 
@@ -582,4 +413,3 @@ nrow = 2
 
 )
 ```
-

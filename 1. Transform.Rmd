@@ -275,7 +275,7 @@ AMI_data_long <- brain_data %>%
 
 ```{r summary}
 
-skim(heart_data)
+skim(brain_data)
 skim(brain_data_long)
 
 ```
@@ -292,7 +292,6 @@ write_csv(UA_data_long, "data/raw/UA_data_long.csv")
 write_csv(AMI_data_long, "data/raw/AMI_data_long.csv") 
 
 #Import data
-
 ## Ambulance Data related to acute cerebrovascular accidents
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
