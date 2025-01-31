@@ -11,7 +11,7 @@
 
 <meta name="author" content="Evgenii Berdinskikh, Marina Kozyreva, Anton Tikhonenko" />
 
-<meta name="date" content="2025-01-29" />
+<meta name="date" content="2025-01-31" />
 
 <title>Transforming raw data</title>
 
@@ -353,7 +353,7 @@ display: none;
 <h1 class="title toc-ignore">Transforming raw data</h1>
 <h4 class="author">Evgenii Berdinskikh, Marina Kozyreva, Anton
 Tikhonenko</h4>
-<h4 class="date">2025-01-29</h4>
+<h4 class="date">2025-01-31</h4>
 
 </div>
 
@@ -434,8 +434,6 @@ SIDC_SILSO &lt;- read_delim(&quot;data/raw/SIDC_SILSO.csv&quot;, delim = &quot;;
             Sunspots = as.numeric(X5))
 
 # Data on local K index from the Irkutsk magnetic observatory (IRT)
-Sys.setlocale(&quot;LC_TIME&quot;, &quot;C&quot;) %&gt;% invisible()
-
 K_IRT &lt;- read_excel(&quot;data/raw/K_IRT/IRT_K_index.xlsx&quot;, skip = 5) 
 
 K_IRT %&gt;% 
@@ -594,13 +592,13 @@ AMI_data_long &lt;- brain_data %&gt;%
 </div>
 <div id="overview-of-tables" class="section level2">
 <h2>Overview of Tables</h2>
-<pre class="r"><code>skim(heart_data)</code></pre>
+<pre class="r"><code>skim(brain_data)</code></pre>
 <table>
 <caption>Data summary</caption>
 <tbody>
 <tr class="odd">
 <td align="left">Name</td>
-<td align="left">heart_data</td>
+<td align="left">brain_data</td>
 </tr>
 <tr class="even">
 <td align="left">Number of rows</td>
@@ -608,7 +606,7 @@ AMI_data_long &lt;- brain_data %&gt;%
 </tr>
 <tr class="odd">
 <td align="left">Number of columns</td>
-<td align="left">23</td>
+<td align="left">22</td>
 </tr>
 <tr class="even">
 <td align="left">_______________________</td>
@@ -628,7 +626,7 @@ AMI_data_long &lt;- brain_data %&gt;%
 </tr>
 <tr class="even">
 <td align="left">numeric</td>
-<td align="left">16</td>
+<td align="left">15</td>
 </tr>
 <tr class="odd">
 <td align="left">________________________</td>
@@ -959,30 +957,17 @@ AMI_data_long &lt;- brain_data %&gt;%
 <td align="left">▇▁▁▁▁</td>
 </tr>
 <tr class="odd">
-<td align="left">EMS_UA</td>
+<td align="left">EMS</td>
 <td align="right">0</td>
 <td align="right">1.00</td>
-<td align="right">11.25</td>
-<td align="right">5.10</td>
+<td align="right">12.57</td>
+<td align="right">6.23</td>
 <td align="right">0.0</td>
 <td align="right">8.00</td>
-<td align="right">11.00</td>
-<td align="right">14.00</td>
-<td align="right">34.00</td>
-<td align="left">▃▇▃▁▁</td>
-</tr>
-<tr class="even">
-<td align="left">EMS_AMI</td>
-<td align="right">0</td>
-<td align="right">1.00</td>
-<td align="right">3.62</td>
-<td align="right">2.23</td>
-<td align="right">0.0</td>
-<td align="right">2.00</td>
-<td align="right">3.00</td>
-<td align="right">5.00</td>
-<td align="right">22.00</td>
-<td align="left">▇▃▁▁▁</td>
+<td align="right">12.00</td>
+<td align="right">17.00</td>
+<td align="right">40.00</td>
+<td align="left">▅▇▅▁▁</td>
 </tr>
 </tbody>
 </table>
@@ -1392,7 +1377,6 @@ write_csv(UA_data_long, &quot;data/raw/UA_data_long.csv&quot;)
 write_csv(AMI_data_long, &quot;data/raw/AMI_data_long.csv&quot;) 
 
 #Import data
-
 ## Ambulance Data related to acute cerebrovascular accidents
 brain_data &lt;- read_csv(&quot;data/raw/brain_data.csv&quot;) %&gt;%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))

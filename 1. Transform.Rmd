@@ -23,6 +23,8 @@ conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::lag)
 
+Sys.setlocale("LC_TIME", "C") %>% invisible()
+
 ```
 
 ## Data Preparation
@@ -103,8 +105,6 @@ SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FAL
             Sunspots = as.numeric(X5))
 
 # Data on local K index from the Irkutsk magnetic observatory (IRT)
-Sys.setlocale("LC_TIME", "C") %>% invisible()
-
 K_IRT <- read_excel("data/raw/K_IRT/IRT_K_index.xlsx", skip = 5) 
 
 K_IRT %>% 

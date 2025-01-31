@@ -16,14 +16,20 @@ library(AER)
 library(broom)
 library(car)
 library(conflicted)
+library(ggpubr)
+library(ggfortify)
 library(lmtest)
+library(scales)
 library(MASS)
 library(sandwich)
 library(tidyverse)
+library(flextable)
 
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::select)
 conflicts_prefer(dplyr::lag)
+
+Sys.setlocale("LC_TIME", "en_US.UTF-8") %>% invisible()
 
 theme_custom <- theme_bw()+ theme(
     plot.title = element_text(size = 30, hjust = 0.5),
@@ -48,64 +54,61 @@ brain_data <- read_csv("data/raw/brain_data.csv") %>%
 brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
-## Ambulance Data related to cardiovascular diseases
-heart_data <- read_csv("data/raw/heart_data.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
-## Ambulance Long Data  related to unstable angina
-UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
-## Ambulance Long Data related to acute myocardial infarction
-AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
-   mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
+```
+
+## Basic model
+
+The distribution of ambulance calls follows a Poisson distribution, as observed in the graph:
+```{r distribution, fig.height=8, fig.width=16}
+
+brain_data %>%
+  ggplot(aes(x = EMS, after_stat(density) )) +
+  geom_histogram(binwidth = 4, fill = "deepskyblue", colour = "deepskyblue4", alpha = 0.5) +
+  geom_density(color = "tomato2", linewidth = 2) +
+  theme_custom +
+  labs(x = "Number of Emergency Calls", 
+       y = "Density", 
+       title = "Distribution of Emergency Calls") +
+  theme_custom
 
 ```
 
-## плотность EMS  
+The baseline Poisson regression model included the date, average daily temperature, number of sunspots, and the total Kp index for the day. All coefficients are significant, p < 0.05.
+```{r model}
 
-```{r}
-brain_data%>%
-  ggplot(aes(x = EMS))+
-  geom_density()+
-theme_custom
-```
-
-## Modeling 
-
-```{r model, fig.width=10}
-
-# Poisson regression
-model_poisson <- glm(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum, 
-                     data = brain_data, family = poisson)
-
-# Negative binomial regression
-model_NBR <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum,
-                    data = brain_data, link = "log")
+poisson_m0 <- glm(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum,  
+    data = brain_data, family = poisson)  
+  
+poisson_m0 %>% summary()
 
 ```
 
-## Model Diagnostic
+## Basic model diagnostic
 
-```{r diagnostic}
+The diagnostic plots and component-plus-residual plots do not reveal any major violations in the model, confirming its adequacy.
+```{r plus}
+plot(poisson_m0)
+crPlots(poisson_m0)
+```
 
-plot(model_poisson)
-crPlots(model_poisson)
+However, overdispersion **(1.54)** and autocorrelation of residuals are present, which may indicate the need for model refinement.
+```{r minus}
 
 # Overdispersion 
-dispersiontest(model_poisson) 
+dispersiontest(poisson_m0) 
 
 # Autocorrelation of residuals
-residuals(model_poisson, type = "response") %>% acf() 
+residuals(poisson_m0, type = "response") %>% acf() 
 
 ```
 
-## Model parameters
+## Alternative models
 
-```{r params, fig.width=14}
+As an alternative, we considered negative binomial regression and the use of robust standard errors for the Poisson regression.
+```{r alter, fig.width=14}
 
 # Poisson regression
-summary(model_poisson)
-
-tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
+tidy(poisson_m0, conf.level = 0.95, conf.int = TRUE) %>%
   mutate(
     model = "Poisson",  
     EMS_effect = ifelse(
@@ -115,8 +118,8 @@ tidy(model_poisson, conf.level = 0.95, conf.int = TRUE) %>%
 
 # Heteroscedasticity-consistent estimation  (vcovHC)
 bind_cols(
-  tidy(coeftest(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3"))),
-  coefci(model_poisson, vcov. = vcovHC(model_poisson, type = "HC3")) %>% 
+  tidy(coeftest(poisson_m0, vcov. = vcovHC(poisson_m0, type = "HC3"))),
+  coefci(poisson_m0, vcov. = vcovHC(poisson_m0, type = "HC3")) %>% 
     as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")) %>%
   mutate(
     model = "Poisson_vcovHC", 
@@ -127,8 +130,8 @@ bind_cols(
 
 # Heteroscedasticity and Autocorrelation Consistent estimation (vcovHAC)
 bind_cols(
-  tidy(coeftest(model_poisson, vcov. = vcovHAC(model_poisson))),
-  coefci(model_poisson, vcov. = vcovHAC(model_poisson)) %>% 
+  tidy(coeftest(poisson_m0, vcov. = vcovHAC(poisson_m0))),
+  coefci(poisson_m0, vcov. = vcovHAC(poisson_m0)) %>% 
     as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")) %>%
   mutate(
     model = "Poisson_vcovHAC", 
@@ -138,9 +141,10 @@ bind_cols(
     signif((exp(estimate)), 3))) -> Poisson_vcovHAC_data
 
 # Negative binomial regression
-summary(model_NBR)
+NBR_model <- glm.nb(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum,
+                    data = brain_data, link = "log")
 
-tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>% 
+tidy(NBR_model, conf.level = 0.95, conf.int = TRUE) %>% 
   mutate(
     model = "Neg_binomial", 
     EMS_effect = ifelse(
@@ -148,14 +152,9 @@ tidy(model_NBR, conf.level = 0.95, conf.int = TRUE) %>%
     paste0(signif((exp(estimate) - 1) * 100, 3), "%"),
     signif((exp(estimate)), 3))) -> Neg_binomial_data
 
-# Comparison Table
-bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
-  arrange(term)
-
 ```
 
-## Model Comparison 
-
+The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression significantly increases the confidence interval for the estimates. Therefore, we decided to focus on reducing overdispersion and autocorrelation in the Poisson model.
 ```{r compare, fig.height=8, fig.width=16}
 
 bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
@@ -176,539 +175,311 @@ bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_
 
 ```
 
-# brain_data
+## Week lag
+
+According to the ACF, spikes occur with a 7-day periodicity. We plan to address this by adding the **day of the week**! The ANOVA shows that including the new term significantly improves the model's explanatory power. The lags have been aligned, but their overall reduction still requires further adjustment.
+```{r lag7, fig.height=8, fig.width=16}
+
+brain_data_transform <- brain_data %>% 
+  mutate(Day_Week = factor(weekdays(Date), 
+                           levels = c("Monday", "Tuesday", "Wednesday", "Thursday",
+                                      "Friday", "Saturday", "Sunday"))) 
+
+poisson_m1 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum,
+                               data = brain_data_transform, family = poisson)
+
+anova(poisson_m0, poisson_m1, test = "LR")
+
+ggarrange (
+residuals(poisson_m0, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Basic models") + theme_custom,  
+residuals(poisson_m1, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Basic models + Day of the week") + theme_custom
+)
+
+```
+
+## Age & Gender
+
+Let's include gender and age in the model, using the long format data (1 day - 6 rows).
+```{r long}
+
+brain_data_long_transform <- brain_data_long %>% 
+  mutate(Day_Week = factor(weekdays(Date), 
+                           levels = c("Monday", "Tuesday", "Wednesday", "Thursday",
+                                      "Friday", "Saturday", "Sunday"))) 
+
+poisson_m2 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum + Age + Sex,
+                  data = brain_data_long_transform, family = poisson)
+
+```
+
+The inclusion of new variables reduced the overdispersion **from 1.54 to 1.20**. 
+The ACF with the addition of age and gender drops sharply, but spikes remain at every 6th row!
+```{r poisson_m2, fig.height=8, fig.width=16}
+
+# Overdispersion 
+dispersiontest(poisson_m0) 
+dispersiontest(poisson_m2) 
+
+# Autocorrelation of residuals
+ggarrange (
+residuals(poisson_m1, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Without Age & Gender") + theme_custom,  
+residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("With Age & Gender") + theme_custom
+)
+
+
+```
+
+We replaced Age and Sex with their interaction Age*Sex. The ANOVA once again indicates an improvement in the model! Additionally, the lags have become more evenly distributed.
+```{r Age_Sex, fig.height=8, fig.width=16}
+
+poisson_m3 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m2, poisson_m3)
+
+# Autocorrelation of residuals
+ggarrange (
+residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Age+Sex") + theme_custom,  
+residuals(poisson_m3, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Age*Sex") + theme_custom
+)
+
+```
 
 ## Calendar effect
 
+We added variables for DayOff and COVID. The ANOVA confirms that these changes are meaningful for the model!
 ```{r Calendar}
 
 # workdays vs weekend
-Date_model <-   glm(EMS ~ Date + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-DayOff_model <- glm(EMS ~ Date + DayOff + 
-                     Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-anova(Date_model, DayOff_model, test = "LR")
+poisson_m4 <- glm(EMS ~ Date + Day_Week + DayOff + 
+                        Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m3, poisson_m4, test = "LR")
 
 # COVID-19
-DayOff_model <- glm(EMS ~ Date + DayOff + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-COVID_model <-  glm(EMS ~ Date + DayOff + COVID + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-anova(DayOff_model, COVID_model, test = "LR")
+poisson_m5 <- glm(EMS ~ Date + Day_Week + DayOff + COVID +
+                        Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
 
-
-# EMS trend
-COVID_model <- glm(EMS ~ Date + DayOff + COVID + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-
-Trend_model <- glm(EMS ~ Date + DayOff + COVID + Year + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-
-anova(COVID_model, Trend_model, test = "LR")
-
-# cyclicity
-brain_data %>%
-  transmute(
-    Date,
-    sin_day = sin(2 * pi * as.numeric(format(Date, "%j")) / 365)
-  ) %>% ggplot()+
-  geom_point(aes(Date, sin_day), colour = "skyblue")+
-  theme_custom
-
-Trend_model <- glm(EMS ~ Date + DayOff + COVID + Year + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-Cycl_model <-  glm(EMS ~ Date + DayOff + COVID + Year + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-
-anova(Trend_model, Cycl_model, test = "LR")
-
-# Autocorrelation
-Cycl_model <-  glm(EMS ~ Date + DayOff + COVID + Year + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-Lag_model <-  glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-
-AIC(Cycl_model, Lag_model)
-
-model_сalendar <-  glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-
-# Overdispersion 
-dispersiontest(model_poisson) 
-dispersiontest(model_сalendar)
-
-# Autocorrelation of residuals
-residuals(model_poisson, type = "response") %>% acf() 
-residuals(model_сalendar, type = "response") %>% acf()
+anova(poisson_m4, poisson_m5, test = "LR")
 
 ```
 
-## Geomagnetic parameters
-```{r Geomagnetic}
+## Cycle Component
 
-# K (IRT) > Kp 
-Kp_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data)
-K_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum,
-                           family = poisson, data = brain_data)
+We will create an additional variable that accounts for the cyclic nature of the data and synchronize it with the temperature.
+```{r sin, fig.height=8, fig.width=16}
 
-AIC(Kp_model, K_model)
+brain_data_long_transform <- brain_data_long_transform %>% 
+  mutate(Temp_scaled = scale(Temp_mean), 
+         Sin_year = sin(2 * pi * (yday(Date) - 103) / 365.25))
 
-# Dst -
-Dst_mean_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + Dst_mean,
-                           family = poisson, data = brain_data)
-Dst_var_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + Dst_var,
-                           family = poisson, data = brain_data)
-Dst_level_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + Dst_level,
-                           family = poisson, data = brain_data)
-
-anova(K_model, Dst_mean_model, test = "LR")
-anova(K_model, Dst_var_model, test = "LR")
-anova(K_model, Dst_level_model, test = "LR")
-
-# Sudden_Start -
-Sudden_Start_model <-  glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + Sudden_Start,
-                           family = poisson, data = brain_data)
-
-anova(K_model, Sudden_Start_model, test = "LR")
-
-# Moving average
-model_geomagnetic <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-AIC(K_model, model_geomagnetic) 
-
-
-# Overdispersion 
-dispersiontest(model_сalendar) 
-dispersiontest(model_geomagnetic)
-
-# Autocorrelation of residuals
-residuals(model_сalendar, type = "response") %>% acf() 
-residuals(model_geomagnetic, type = "response") %>% acf()
-```
-
-## Solar activity
-```{r Solar}
-
-Sunspots_lag0_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                           I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                           Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-Sunspots_lag1_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                           I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                           Temp_mean + I(lag(Sunspots, 1)) + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-Sunspots_lag2_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                           I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                           Temp_mean + I(lag(Sunspots, 2)) + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-Sunspots_lag3_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                           I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                           Temp_mean + I(lag(Sunspots, 3)) + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-Sunspots_average_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                           I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                           Temp_mean + I(rollmean(Sunspots, 7, fill = NA)) + 
-                             K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-AIC(Sunspots_lag0_model, Sunspots_lag1_model, Sunspots_lag2_model, 
-    Sunspots_lag3_model, Sunspots_average_model)
-
-```
-
-## Climatic
-```{r Climatic}
-
-model_geomagnetic <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-H20_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    H2O + Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-Wind_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                    Wind + Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)),
-                           family = poisson, data = brain_data)
-
-anova(model_geomagnetic, H20_model, test = "LR")
-anova(model_geomagnetic, Wind_model, test = "LR")
-
-brain_data_model <- glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) + 
-                          I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+ 
-                          Wind + Temp_mean + Sunspots + K_Sum + I(rollmean(K_Sum, 7, fill = NA)), 
-                        family = poisson, data = brain_data)
-
-# Overdispersion 
-dispersiontest(model_poisson) 
-dispersiontest(brain_data_model)
-
-# Autocorrelation of residuals
-residuals(model_poisson, type = "response") %>% acf() 
-residuals(brain_data_model, type = "response") %>% acf()
-
-# Summary
-summary(model_poisson)
-summary(brain_data_model)
-
-```
-
-
-
-# brain_data_long
-
-## Long Model Diagnostic
-
-```{r long_diagnostic}
-
-long_model_poisson <- glm(EMS ~ Date + Age + Sex + Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long) 
-
-plot(long_model_poisson)
-crPlots(long_model_poisson)
-
-# Overdispersion 
-dispersiontest(long_model_poisson) 
-
-# Autocorrelation of residuals
-residuals(long_model_poisson, type = "response") %>% acf() 
-
-#Лаги каждый 6 (1 день - 6 строк) и 42 (6 * 1 неделю)
-
-```
-
-## Calendar effect
-
-```{r long_Calendar}
-
-# workdays vs weekend
-Date_model_long <-   glm(EMS ~ Date + 
-                    Age + Sex +   
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-DayOff_model_long <- glm(EMS ~ Date + DayOff + 
-                    Age + Sex +   
-                     Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-anova(Date_model_long, DayOff_model_long, test = "LR")
-
-# COVID-19
-DayOff_model_long <- glm(EMS ~ Date + DayOff + 
-                    Age + Sex +   
-                     Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-COVID_model_long <-  glm(EMS ~ Date + DayOff + COVID + 
-                      Age + Sex +  
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-anova(DayOff_model_long, COVID_model_long, test = "LR")
-
-
-# EMS trend Year???
-COVID_model_long <-  glm(EMS ~ Date + DayOff + COVID + 
-                      Age + Sex +  
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-Trend_model_long <- glm(EMS ~ Date + DayOff + COVID + Year + 
-                          Age + Sex +  
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-anova(COVID_model_long, Trend_model_long, test = "LR")
-
-# cyclicity
-brain_data %>%
-  transmute(
-    Date,
-    sin_day = sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25)
-  ) %>% ggplot()+
-  geom_point(aes(Date, sin_day), colour = "skyblue")+
-  theme_custom
-
-Trend_model_long <- glm(EMS ~ Date + DayOff + COVID + Year + 
-                          Age + Sex +  
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-Cycl_model_long <-  glm(EMS ~ Date + DayOff + COVID + Year + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                           Age + Sex + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-anova(Trend_model_long, Cycl_model_long, test = "LR")
-
-# Autocorrelation ??
-Cycl_model_long <-  glm(EMS ~ Date + DayOff + COVID + Year + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                           Age + Sex + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-Lag_model_long <-  glm(EMS ~ Date + DayOff + COVID + Year + I(lag(EMS, 7)) +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365))+
-                           Age + Sex + 
-                    Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-AIC(Cycl_model_long, Lag_model_long)
-
-long_model_сalendar <-  glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-
-
-?дни недели
-
-# Overdispersion 
-dispersiontest(long_model_poisson) 
-dispersiontest(long_model_сalendar)
-
-# Autocorrelation of residuals
-residuals(long_model_poisson, type = "response") %>% acf() 
-residuals(long_model_сalendar, type = "response") %>% acf()
-
-```
-
-## Geomagnetic parameters
-```{r Geomagnetic}
-
-# K (IRT) > Kp 
-Kp_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + Kp_Sum,
-                           family = poisson, data = brain_data_long)
-K_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum,
-                           family = poisson, data = brain_data_long)
-
-AIC(Kp_model_long, K_model_long)
-
-# Dst -
-Dst_mean_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum + Dst_mean,
-                           family = poisson, data = brain_data_long)
-Dst_var_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum + Dst_var,
-                           family = poisson, data = brain_data_long)
-Dst_level_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum + Dst_level,
-                           family = poisson, data = brain_data_long)
-
-anova(K_model_long, Dst_mean_model_long, test = "LR")
-anova(K_model_long, Dst_var_model_long, test = "LR")
-anova(K_model_long, Dst_level_model_long, test = "LR")
-
-# Sudden_Start -
-Sudden_Start_model_long <-  glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum + Sudden_Start,
-                           family = poisson, data = brain_data_long)
-
-anova(K_model_long, Sudden_Start_model_long, test = "LR")
-
-# Moving average
-model_geomagnetic_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum +  I(rollmean(K_Sum, 42, fill = NA)),
-                           family = poisson, data = brain_data_long)
-
-AIC(K_model_long, model_geomagnetic_long)
-
-
-# Overdispersion 
-dispersiontest(long_model_сalendar) 
-dispersiontest(model_geomagnetic_long)
-
-# Autocorrelation of residuals
-residuals(long_model_сalendar, type = "response") %>% acf() 
-residuals(model_geomagnetic_long, type = "response") %>% acf()
-```
-
-## Climatic
-```{r Climatic}
-
-model_geomagnetic_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Temp_mean + Sunspots + K_Sum +  I(rollmean(K_Sum, 42, fill = NA)),
-                           family = poisson, data = brain_data_long)
-
-H20_model_long <- glm(EMS ~ Date + DayOff + COVID +
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + H2O + Temp_mean + Sunspots + K_Sum +  I(rollmean(K_Sum, 42, fill = NA)),
-                           family = poisson, data = brain_data_long)
-
-Wind_model_long <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+
-                     Age + Sex + Wind + Temp_mean + Sunspots + K_Sum +  I(rollmean(K_Sum, 42, fill = NA)),
-                           family = poisson, data = brain_data_long)
-
-anova(model_geomagnetic_long, H20_model_long, test = "LR")
-anova(model_geomagnetic_long, Wind_model_long, test = "LR")
-
-brain_data_long_model <- glm(EMS ~ Date + DayOff + COVID + 
-                         I(sin(2 * pi * as.numeric(format(Date, "%j")) / 365.25))+ 
-                          Age + Sex + Wind + Temp_mean + Sunspots + 
-                          K_Sum +  I(rollmean(K_Sum, 42, fill = NA)), 
-                        family = poisson, data = brain_data_long)
-
-# Overdispersion 
-dispersiontest(long_model_poisson) 
-dispersiontest(brain_data_long_model)
-
-# Autocorrelation of residuals
-residuals(long_model_poisson, type = "response") %>% acf() 
-residuals(brain_data_long_model, type = "response") %>% acf()
-
-# Summary
-summary(long_model_poisson)
-summary(brain_data_long_model)
-
-```
-
-## Overview
-
-```{r}
-#brain_data
-model_poisson %>% summary()
-brain_data_model %>% summary()
-
-dispersiontest(model_poisson) 
-dispersiontest(brain_data_model) 
-
-residuals(model_poisson, type = "response") %>% acf() 
-residuals(brain_data_model, type = "response") %>% acf() 
-
-#brain_data_long
-long_model_poisson %>% summary()
-brain_data_long_model %>% summary()
-
-dispersiontest(long_model_poisson) 
-dispersiontest(brain_data_long_model) 
-
-residuals(long_model_poisson, type = "response") %>% acf() 
-residuals(brain_data_long_model, type = "response") %>% acf() 
-```
-# Взамодействия
-```{r}
-
-Age_Sex <- glm(formula = EMS ~ Date + DayOff + COVID + 
-                 I(sin(2 * pi * as.numeric(format(Date, "%j"))/365.25)) + 
-    Age:Sex + Age + Sex + Wind + Temp_mean + Sunspots + K_Sum + 
-      I(rollmean(K_Sum, 42, fill = NA)), family = poisson, data = brain_data_long)
-
-anova(brain_data_long_model, Age_Sex , test = "LR")
-
-Age_Sex_Sunspots <- glm(formula = EMS ~ Date + DayOff + COVID + 
-                 I(sin(2 * pi * as.numeric(format(Date, "%j"))/365.25)) + 
-    Age:Sex + Age + Sex + Wind + Temp_mean + Age:Sunspots + Sunspots:Sex + Sunspots + K_Sum + 
-      I(rollmean(K_Sum, 42, fill = NA)), family = poisson, data = brain_data_long)
-
-anova(brain_data_long_model, Age_Sex_Sunspots , test = "LR") 
-drop1(Age_Sex_Sunspots, test = "LR") 
-
-```
-
-# Синусоида
-```{r sin}
-
-# Подготовка данных
-brain_data_long_scaled <- brain_data_long %>%
-  mutate(Temp_mean_scaled = scale(Temp_mean))  # Нормализация температуры
-
-# Функция для расчёта RMSE
-calculate_rmse <- function(shift) {
-  brain_data_long_scaled %>%
+# RMSE function
+RMSE_function <- function(shift) {
+  brain_data_long_transform %>%
     mutate(
-      Annual_Sin = sin(2 * pi * (yday(Date) - shift) / 365.25),
-      Annual_Sin_scaled = scale(Annual_Sin),
-      RMSE = (Temp_mean_scaled - Annual_Sin_scaled)^2
-    ) %>%
-    summarise(mean_RMSE = sqrt(mean(RMSE, na.rm = TRUE))) %>%
-    pull(mean_RMSE)
+      Sin_year = sin(2 * pi * (yday(Date) - shift) / 365.25),
+      Sin_year_scaled = scale(Sin_year),
+      Squared_Error = (Temp_scaled - Sin_year_scaled)^2 ) %>% 
+    summarise(RMSE = sqrt(mean(Squared_Error, na.rm = TRUE))) %>% 
+    pull(RMSE)
 }
 
-# Тестирование разных смещений
+# Phase-shift search
 shifts <- 90:120
-rmse_values <- sapply(shifts, calculate_rmse)
+RMSE_values <- sapply(shifts, RMSE_function)
 
-# Нахождение оптимального смещения
-optimal_shift <- shifts[which.min(rmse_values)]
-optimal_rmse <- min(rmse_values)
-
-# Вывод результатов
-cat("Оптимальное смещение:", optimal_shift, "\n")
-cat("Минимальное значение RMSE:", optimal_rmse, "\n")
-
-# Визуализация RMSE в зависимости от смещения
-data.frame(Shift = shifts, RMSE = rmse_values) %>%
+tibble(Shift = shifts, RMSE = RMSE_values) %>%
   ggplot(aes(x = Shift, y = RMSE)) +
   geom_line() +
   geom_point() +
-  labs(title = "RMSE by Day Shift", x = "Day Shift", y = "RMSE")
+  labs(x = "Day Shift", y = "RMSE") +
+  theme_custom +
+  annotate("text", x = 103, y = 0.41, size = 10, 
+           label = paste0("Optimal shift parameter:", shifts[which.min(RMSE_values)]))+ 
+  annotate("text", x = 103, y = 0.40, size = 7, 
+           label = paste0("RMSE:", round(min(RMSE_values), 3)))
+  
+  brain_data_long_transform %>%
+    ggplot(aes(x = Date)) +
+  geom_line(aes(y = Temp_scaled, color = "Temperature"), linewidth = 1) +
+  geom_line(aes(y = Sin_year, color = "Cycle Component"), linewidth = 2)+
+  scale_color_manual(values = c("Temperature" = "deepskyblue3", "Cycle Component" = "tomato3")) +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
+  labs(x = "", y = "Annual Cycle", colour = "")+
+  theme_custom
+    
+```
+
+Adding the Cycle Component, according to the ANOVA analysis, improves the model.
+```{r cycle}
+
+poisson_m6 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m5, poisson_m6, test = "LR")
 
 ```
 
-```{r vis}
-global_avg_temp <- mean(brain_data_long$Temp_mean)
-brain_data_long <- brain_data_long %>%
-  mutate(Annual_Sin = sin(2 * pi * (yday(Date) - 103) / 365.25))
-temp_k = (max(brain_data_long$Temp_mean, na.rm = TRUE) - min(brain_data_long$Temp_mean, na.rm = TRUE)) / 2 + mean(brain_data_long$Temp_mean, na.rm = TRUE)
-ggplot(brain_data_long, aes(x = Date)) +
-  geom_line(aes(y = Temp_mean), color = "blue") +
-  geom_line(aes(y = Annual_Sin * temp_k, color = "red"))
+## Geomagnetic parameters
+
+Replacing the daily Kp index with the **local K index** for Irkutsk reduces the AIC, confirming the choice of the local index. ANOVA also showed that adding the **Dst index** as the daily amplitude of values improves the model, while adding the presence of **Sudden Impulses** had no significant impact.
+```{r Geomagnetic, warning=FALSE}
+
+# K index (IRT)
+poisson_m7 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + K_Sum + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+AIC(poisson_m6, poisson_m7)
+
+# Dst index (Dst_var)
+poisson_m8 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + K_Sum + Dst_mean + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+poisson_m9 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + K_Sum + Dst_var + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+poisson_m10 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + K_Sum + Dst_level + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+anova(poisson_m7, poisson_m8, test = "LR")
+anova(poisson_m7, poisson_m9, test = "LR")
+anova(poisson_m7, poisson_m10, test = "LR")
+
+# Sudden_Start (-)
+poisson_m11 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean + Sunspots + K_Sum + Dst_var + Sudden_Start + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+anova(poisson_m9, poisson_m11, test = "LR")
 
 ```
 
-# Трансформация
-```{r sun}
+## Sunspots
+Solar activity was additionally assessed by the absolute difference between Sunspots and the average Sunspots value over the 24th solar cycle. No significant difference was found between this model and the model with Sunspots.
+```{r Sunspots}
 
-brain_data_long <- brain_data_long %>%
-  mutate(Weekday = weekdays(Date)) %>%
-  mutate(Sunspots_dev = abs(mean(Sunspots) - Sunspots))
+brain_data %>% 
+  filter(between(Date, as.Date("2008-12-15"),  as.Date("2019-12-15"))) %>% 
+  pull(Sunspots) %>% mean() -> Solar_cycle_mean
+
+brain_data_long_transform <- brain_data_long_transform %>% 
+  mutate(Sunspots_dev = abs(Sunspots - mean(Solar_cycle_mean)))
+
+poisson_m12 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Temp_mean +  Sunspots_dev + K_Sum + Dst_var + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+AIC(poisson_m9, poisson_m12)
 
 ```
+
+## Climatic
+
+When additional climate data were included, ANOVA indicated that the variable **Wind** is significant for the model, while precipitation did not show a significant effect.
+```{r Climatic}
+
+poisson_m13 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        H2O + Temp_mean + Sunspots + K_Sum + Dst_var + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+poisson_m14 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
+                        Wind + Temp_mean + Sunspots + K_Sum + Dst_var + Age*Sex,
+                               data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m9, poisson_m13, test = "LR")
+anova(poisson_m9, poisson_m14, test = "LR")
+
+```
+
+## Interactions
+Model interaction checks revealed, in addition to **Age-Sex**, significant effects for the following pairs: 
+**Age-DayOff, Age-COVID, Age-Temperature, Sex-COVID, Sex-Temperature**.
+```{r Interactions}
+
+# Age Interactions
+poisson_m15 <- glm(EMS ~ Date + Day_Week + Sin_year +
+                        Age*DayOff + Age*COVID + Age*Sex + 
+                        Age*Wind + Age*Temp_mean + Age*Sunspots + Age*K_Sum + Age*Dst_var,
+                   data = brain_data_long_transform, family = poisson)
+anova(poisson_m14, poisson_m15 , test = "LR") 
+drop1(poisson_m15, test = "LR") 
+
+poisson_m16 <- glm(EMS ~ Date + Day_Week + Sin_year +
+                        Age*DayOff + Age*COVID + Age*Sex + Age*Temp_mean +
+                        Wind + Sunspots + K_Sum + Dst_var,
+                   data = brain_data_long_transform, family = poisson)
+anova(poisson_m14, poisson_m16 , test = "LR") 
+drop1(poisson_m16, test = "LR") 
+
+# Sex Interactions
+poisson_m17 <- glm(EMS ~ Date + Day_Week + Sin_year +
+                        Age*Sex + Age*DayOff + Age*COVID + Age*Temp_mean + 
+                                  Sex*DayOff + Sex*COVID + Sex*Temp_mean + 
+                        Sex*Wind + Sex*Sunspots + Sex*K_Sum + Sex*Dst_var,
+                               data = brain_data_long_transform, family = poisson)
+anova(poisson_m16, poisson_m17 , test = "LR") 
+drop1(poisson_m17, test = "LR") 
+
+
+poisson_final <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Dst_var, 
+                     data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m16, poisson_final , test = "LR") 
+drop1(poisson_final, test = "LR") 
+
+```
+
+## Final Model
+```{r Final, fig.height=10, fig.width=20}
+
+# Overdispersion 
+dispersiontest(poisson_m0) 
+dispersiontest(poisson_final) 
+
+# Autocorrelation of residuals
+ggarrange (
+residuals(poisson_m0, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Basic Model") + theme_custom,  
+residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Long Data Model") + theme_custom,  
+residuals(poisson_final, type = "response") %>% acf() %>% autoplot() + 
+  ggtitle("Final Model") + theme_custom, 
+nrow = 1
+)
+
+# Plots
+plot(poisson_final)
+
+# Summary
+poisson_final %>% summary()
+
+final_table <- tidy(poisson_final, conf.level = 0.95, conf.int = TRUE)
+scientific <- scientific_format()
+
+final_table %>%   
+  filter(p.value < 0.05) %>% 
+   transmute(
+      Term = term, Estimate = formatC(estimate, format = "e", digits = 2), 
+      `Lower CI` = formatC(conf.low, format = "e", digits = 2), 
+      `Upper CI` = formatC(conf.high, format = "e", digits = 2), 
+      `P-value` = formatC(p.value, format = "e", digits = 2), 
+      `EMS effect` = ifelse(term != "(Intercept)", 
+                            paste0(signif((exp(estimate) - 1) * 100, 3), "%"), 
+                            signif((exp(estimate)), 3))) %>% 
+  flextable() %>% 
+  width(width = 1) 
+
+```
+
 
