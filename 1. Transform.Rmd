@@ -13,7 +13,6 @@ knitr::opts_chunk$set(
   )
 
 library(conflicted)
-library(factoextra)
 library(readxl)
 library(skimr)
 library(tidyverse)

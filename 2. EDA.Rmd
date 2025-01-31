@@ -12,17 +12,15 @@ knitr::opts_chunk$set(
   fig.path = "data/pics/EDA-"
   )
 
+library(conflicted)
 library(corrplot)
 library(corrr)
-library(conflicted)
-library(forecast)
-library(ggpubr)
-library(tidyverse)
-library(lubridate)
-library(GGally)
-library(ggfortify) 
-library(rstatix)
 library(flextable)
+library(forecast)
+library(GGally)
+library(ggpubr)
+library(rstatix)
+library(tidyverse)
 
 conflicts_prefer(dplyr::filter)
 conflicts_prefer(dplyr::select)
