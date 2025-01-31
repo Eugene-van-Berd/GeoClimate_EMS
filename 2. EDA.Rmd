@@ -199,7 +199,8 @@ brain_data %>%
   theme_custom
 
 ```
-Our data covers the complete 24th solar cycle, spanning the period from 2009 to 2019.
+
+Our data covers the complete 24th solar cycle, spanning the period from December 2008 to December 2019.
 
 Working with time series allows us to decompose the data to identify trends and cyclic patterns:
 ```{r decomposing, fig.height=15, fig.width=15}
