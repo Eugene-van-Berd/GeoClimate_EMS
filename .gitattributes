@@ -1,0 +1,10 @@
+# Include R and RMarkdown files in statistics
+*.Rmd linguist-detectable
+*.R linguist-detectable
+
+# Mark HTML files as generated 
+*.html linguist-generated
+
+# Specify .R and .Rmd as R language
+*.Rmd linguist-language=R
+*.R linguist-language=R
