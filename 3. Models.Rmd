@@ -83,8 +83,8 @@ poisson_m0 %>% summary()
 ## Basic model diagnostic
 
 The diagnostic plots and component-plus-residual plots do not reveal any major violations in the model, confirming its adequacy.
-```{r plus}
-plot(poisson_m0)
+```{r plus, fig.height=10, fig.width=20}
+autoplot(poisson_m0)+theme_custom
 crPlots(poisson_m0)
 ```
 
@@ -152,7 +152,7 @@ tidy(NBR_model, conf.level = 0.95, conf.int = TRUE) %>%
 ```
 
 The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression significantly increases the confidence interval for the estimates. Therefore, we decided to focus on reducing overdispersion and autocorrelation in the Poisson model.
-```{r compare, fig.height=8, fig.width=16}
+```{r compare, fig.height=5, fig.width=15}
 
 bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
   filter(term != "(Intercept)") %>%
@@ -189,9 +189,9 @@ anova(poisson_m0, poisson_m1, test = "LR")
 
 ggarrange (
 residuals(poisson_m0, type = "response") %>% acf() %>% autoplot() + 
-  ggtitle("Basic models") + theme_custom,  
+  ggtitle("Basic model") + theme_custom,  
 residuals(poisson_m1, type = "response") %>% acf() %>% autoplot() + 
-  ggtitle("Basic models + Day of the week") + theme_custom
+  ggtitle("Basic model + Day of the week") + theme_custom
 )
 
 ```
@@ -214,10 +214,10 @@ poisson_m2 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum + Age + 
 The inclusion of new variables reduced the overdispersion **from 1.54 to 1.20**. 
 The ACF with the addition of age and gender drops sharply, but spikes remain at every 6th row!
 ```{r poisson_m2, fig.height=8, fig.width=16}
-
 # Overdispersion 
 dispersiontest(poisson_m0) 
-dispersiontest(poisson_m2) 
+ dispersiontest(poisson_m2) 
+
 
 # Autocorrelation of residuals
 ggarrange (
@@ -231,19 +231,22 @@ residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() +
 ```
 
 We replaced Age and Sex with their interaction Age*Sex. The ANOVA once again indicates an improvement in the model! Additionally, the lags have become more evenly distributed.
-```{r Age_Sex, fig.height=8, fig.width=16}
+```{r Age_Sex, fig.height=10, fig.width=25}
 
-poisson_m3 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+poisson_m3 <- glm(EMS ~ Date + Day_Week + Age*Sex + Temp_mean + Sunspots + Kp_Sum,
                                data = brain_data_long_transform, family = poisson)
 
 anova(poisson_m2, poisson_m3)
 
+
 # Autocorrelation of residuals
 ggarrange (
-residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() + 
-  ggtitle("Age+Sex") + theme_custom,  
+residuals(poisson_m1, type = "response") %>% acf() %>% autoplot() +
+  ggtitle("Without Age & Sex") + theme_custom,
+residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() +
+  ggtitle("Age+Sex") + theme_custom,
 residuals(poisson_m3, type = "response") %>% acf() %>% autoplot() + 
-  ggtitle("Age*Sex") + theme_custom
+  ggtitle("Age*Sex") + theme_custom, nrow = 1
 )
 
 ```
@@ -254,22 +257,22 @@ We added variables for DayOff and COVID. The ANOVA confirms that these changes a
 ```{r Calendar}
 
 # workdays vs weekend
-poisson_m4 <- glm(EMS ~ Date + Day_Week + DayOff + 
-                        Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+poisson_m4 <- glm(EMS ~ Date + Day_Week + DayOff + Age*Sex + 
+                        Temp_mean + Sunspots + Kp_Sum,
                                data = brain_data_long_transform, family = poisson)
 
 anova(poisson_m3, poisson_m4, test = "LR")
 
 # COVID-19
-poisson_m5 <- glm(EMS ~ Date + Day_Week + DayOff + COVID +
-                        Temp_mean + Sunspots + Kp_Sum + Age*Sex,
+poisson_m5 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Age*Sex + 
+                        Temp_mean + Sunspots + Kp_Sum,
                                data = brain_data_long_transform, family = poisson)
 
 anova(poisson_m4, poisson_m5, test = "LR")
 
 ```
 
-## Cycle Component
+## Cyclic component
 
 We will create an additional variable that accounts for the cyclic nature of the data and synchronize it with the temperature.
 ```{r sin, fig.height=8, fig.width=16}
@@ -307,8 +310,8 @@ tibble(Shift = shifts, RMSE = RMSE_values) %>%
   brain_data_long_transform %>%
     ggplot(aes(x = Date)) +
   geom_line(aes(y = Temp_scaled, color = "Temperature"), linewidth = 1) +
-  geom_line(aes(y = Sin_year, color = "Cycle Component"), linewidth = 2)+
-  scale_color_manual(values = c("Temperature" = "deepskyblue3", "Cycle Component" = "tomato3")) +
+  geom_line(aes(y = Sin_year, color = "Cyclic component"), linewidth = 2)+
+  scale_color_manual(values = c("Temperature" = "deepskyblue3", "Cyclic component" = "tomato3")) +
   scale_x_date(date_breaks = "2 year", date_labels = "%Y")+
   labs(x = "", y = "Annual Cycle", colour = "")+
   theme_custom
@@ -394,6 +397,8 @@ poisson_m14 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year +
 anova(poisson_m9, poisson_m13, test = "LR")
 anova(poisson_m9, poisson_m14, test = "LR")
 
+poisson_m14 %>% summary()
+
 ```
 
 ## Interactions
@@ -437,11 +442,70 @@ drop1(poisson_final, test = "LR")
 
 ```
 
-## Final Model
-```{r Final, fig.height=10, fig.width=20}
+## Final Check
+When testing the interaction of age and gender with geomagnetic variables **(K and Dst indices)** and the **number of sunspots**, no significant effects were found. The final model remains unchanged.
+```{r Check}
 
+poisson_m18 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + K_Sum + Dst_var + Age*Sunspots, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m18 , test = "LR") 
+
+poisson_m19 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + Dst_var + Age*K_Sum, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m19 , test = "LR") 
+
+poisson_m20 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Age*Dst_var, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m20 , test = "LR")
+
+poisson_m21 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + K_Sum + Dst_var + Sex*Sunspots, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m21 , test = "LR")
+
+poisson_m22 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + Dst_var + Sex*K_Sum, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m22 , test = "LR")
+
+poisson_m23 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Sex*Dst_var, 
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final, poisson_m23 , test = "LR")
+
+```
+
+## Final Model
+```{r Final1, fig.height=10, fig.width=25}
+
+# Summary
+poisson_final %>% summary()
+
+# Plots
+poisson_final %>% autoplot() + theme_custom
+
+
+```
+
+```{r Final2, fig.height=10, fig.width=25}
 # Overdispersion 
 dispersiontest(poisson_m0) 
+dispersiontest(poisson_m2)
 dispersiontest(poisson_final) 
 
 # Autocorrelation of residuals
@@ -455,27 +519,87 @@ residuals(poisson_final, type = "response") %>% acf() %>% autoplot() +
 nrow = 1
 )
 
-# Plots
-plot(poisson_final)
+```
 
-# Summary
-poisson_final %>% summary()
+## Impact of Model Choice
+Let's return to the negative binomial regression and the use of robust standard errors for the Poisson regression on the final set of variables.
+```{r alter2, fig.width=14}
+
+# Poisson regression
+tidy(poisson_final, conf.level = 0.95, conf.int = TRUE) %>%
+  mutate(
+    model = "Poisson") -> Poisson_data_final
+
+# Heteroscedasticity-consistent estimation  (vcovHC)
+bind_cols(
+  tidy(coeftest(poisson_final, vcov. = vcovHC(poisson_final, type = "HC3"))),
+  coefci(poisson_final, vcov. = vcovHC(poisson_final, type = "HC3")) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")) %>%
+  mutate(
+    model = "Poisson_vcovHC") -> Poisson_vcovHC_data_final
+
+# Heteroscedasticity and Autocorrelation Consistent estimation (vcovHAC)
+bind_cols(
+  tidy(coeftest(poisson_final, vcov. = vcovHAC(poisson_final))),
+  coefci(poisson_final, vcov. = vcovHAC(poisson_final)) %>% 
+    as_tibble() %>% rename(conf.low = "2.5 %", conf.high = "97.5 %")) %>%
+  mutate(
+    model = "Poisson_vcovHAC") -> Poisson_vcovHAC_data_final
+
+# Negative binomial regression
+NBR_final <- glm.nb(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Dst_var, 
+                     data = brain_data_long_transform, link = "log")
+  
+tidy(NBR_final, conf.level = 0.95, conf.int = TRUE) %>% 
+  mutate(
+    model = "Neg_binomial") -> Neg_binomial_data_final
+
+```
+
+The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression in the final model, compared to the baseline, has virtually no effect on the confidence intervals for the estimates, meaning that the use of Poisson regression was justified!
+```{r compare2, fig.height=15, fig.width=15}
+
+bind_rows(Poisson_data_final, Poisson_vcovHC_data_final, 
+          Poisson_vcovHAC_data_final, Neg_binomial_data_final) %>% 
+  filter(between(estimate, -0.2, 0.2)) %>%
+  mutate(
+         model = fct_recode(model, `Poisson (vcovHC)` = "Poisson_vcovHC", 
+                           `Poisson (vcovHAC)`= "Poisson_vcovHAC", 
+                           `Negative Binomial Regression` = "Neg_binomial")) %>% 
+  ggplot(aes(x = term,y = estimate, ymin = conf.low, ymax = conf.high, colour = model))+
+  geom_pointrange(position = position_dodge(width = 0.6)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") + 
+  scale_color_brewer(palette = "Dark2", direction = -1)+
+  coord_flip() +
+  labs( x = "", y = "Coefficient Estimates", title = "Model Comparison", color = "Model") +
+  theme_custom
+
+```
+
+## EMS effect
+```{r effect}
 
 final_table <- tidy(poisson_final, conf.level = 0.95, conf.int = TRUE)
 
 final_table %>%   
   filter(p.value < 0.05) %>% 
    transmute(
-      Term = term, Estimate = formatC(estimate, format = "e", digits = 2), 
-      `Lower CI` = formatC(conf.low, format = "e", digits = 2), 
-      `Upper CI` = formatC(conf.high, format = "e", digits = 2), 
-      `P-value` = formatC(p.value, format = "e", digits = 2), 
+      Term = term, 
       `EMS effect` = ifelse(term != "(Intercept)", 
                             paste0(signif((exp(estimate) - 1) * 100, 3), "%"), 
-                            signif((exp(estimate)), 3))) %>% 
+                            signif((exp(estimate)), 3)), 
+      `EMS effect (Lower CI)` = ifelse(term != "(Intercept)", 
+                            paste0(signif((exp(conf.low) - 1) * 100, 3), "%"), 
+                            signif((exp(conf.low)), 3)), 
+      `EMS effect (Upper CI)` = ifelse(term != "(Intercept)", 
+                            paste0(signif((exp(conf.high) - 1) * 100, 3), "%"), 
+                            signif((exp(conf.high)), 3))
+      ) %>% 
   flextable() %>% 
   width(width = 1) 
 
+
 ```
-
-
