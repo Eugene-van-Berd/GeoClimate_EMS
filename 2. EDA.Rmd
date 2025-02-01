@@ -412,3 +412,12 @@ nrow = 2
 
 )
 ```
+
+Observations:
+Age Group 55+ Years: This age group consistently has the highest number of ambulance calls across the years for both genders. The number of calls for females in this group notably exceeds those for males, particularly in more recent years.
+
+Age Group 25-44 Years: In contrast, the younger age group (25-44 years) shows fewer ambulance calls, with a more balanced distribution between males and females. 
+
+Age Group 45-54 Years: For the middle age group, there is also a balance between male and female calls, but the numbers are generally higher than those in the 25-44 age group and lower than in the 55+ age group. 
+
+Each age group displays a general increase in ambulance calls over the years leading up to 2020. This upward trend is consistent across all groups, indicating a growing utilization of ambulance services over time.
