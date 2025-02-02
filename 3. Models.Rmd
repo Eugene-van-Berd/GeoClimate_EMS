@@ -589,14 +589,14 @@ final_table %>%
    transmute(
       Term = term, 
       `EMS effect` = ifelse(term != "(Intercept)", 
-                            paste0(signif((exp(estimate) - 1) * 100, 3), "%"), 
-                            signif((exp(estimate)), 3)), 
+                            paste0(round((exp(estimate) - 1) * 100, 3), "%"), 
+                            round((exp(estimate)), 3)), 
       `EMS effect (Lower CI)` = ifelse(term != "(Intercept)", 
-                            paste0(signif((exp(conf.low) - 1) * 100, 3), "%"), 
-                            signif((exp(conf.low)), 3)), 
+                            paste0(round((exp(conf.low) - 1) * 100, 3), "%"), 
+                            round((exp(conf.low)), 3)), 
       `EMS effect (Upper CI)` = ifelse(term != "(Intercept)", 
-                            paste0(signif((exp(conf.high) - 1) * 100, 3), "%"), 
-                            signif((exp(conf.high)), 3))
+                            paste0(round((exp(conf.high) - 1) * 100, 3), "%"), 
+                            round((exp(conf.high)), 3))
       ) %>% 
   flextable() %>% 
   width(width = 1) 

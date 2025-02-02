@@ -180,7 +180,7 @@ However, all the variables considered do not have a noticeable relationship with
 ## Data Decomposition 
 
 The number of sunspots is directly linked to the solar activity cycles, as confirmed by the graph:
-```{r sunspots, fig.height=8, fig.width=16}
+```{r sunspots, fig.height=8, fig.width=12}
 
 brain_data %>% 
   select(!c(Pressure, F10.7, Ap_mean)) %>% 
@@ -201,7 +201,7 @@ brain_data %>%
 Our data covers the complete 24th solar cycle, spanning the period from December 2008 to December 2019.
 
 Working with time series allows us to decompose the data to identify trends and cyclic patterns:
-```{r decomposing, fig.height=15, fig.width=15}
+```{r decomposing, fig.height=15, fig.width=25}
 
 ggarrange(
 
@@ -291,20 +291,27 @@ brain_data %>%
 ```{r DayOff, fig.height=8, fig.width=16}
 
 mean_values <- brain_data %>%
+   mutate(DayOff = fct_recode(DayOff, "Working days" = "No", "Non-working days" = "Yes")) %>% 
   group_by(DayOff) %>%
   summarise(mean_EMS = round(mean(EMS, na.rm = TRUE), 2), .groups = "drop")
 
-ggplot(brain_data, aes(x = DayOff, y = EMS)) +
+brain_data %>% 
+  mutate(DayOff = fct_recode(DayOff, "Working days" = "No", "Non-working days" = "Yes")) %>% 
+ggplot(aes(x = DayOff, y = EMS)) +
   geom_boxplot(aes(fill = DayOff)) +
   geom_text(data = mean_values, 
             aes(x = DayOff, y = mean_EMS, label = mean_EMS), 
             color = "black", size = 8, fontface = "bold", vjust = -1) +
   scale_fill_brewer(palette = "Dark2", direction = -1)+
   scale_y_continuous(limits = c(NA, max(brain_data$EMS) + 3))+
-  labs(y = "Daily Emergency Calls", x = "Non-working Days")+
+  labs(y = "Daily Emergency Calls", x = "")+
   theme_custom +
   theme(legend.position = "none")+
-  stat_pvalue_manual(t_test(data = brain_data,  EMS ~ DayOff),
+  stat_pvalue_manual(t_test(data = brain_data %>%  
+                              mutate(DayOff = fct_recode(DayOff, 
+                                                         "Working days" = "No", 
+                                                         "Non-working days" = "Yes")),  
+                            EMS ~ DayOff),
                      label = "T-test, p = {p}", 
                      size = 10, 
                      y.position = max(brain_data$EMS) + 0.1)
