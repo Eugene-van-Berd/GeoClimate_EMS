@@ -42,6 +42,11 @@ theme_custom <- theme_bw()+ theme(
 
 ```{r read, message=FALSE}
 
+# International sunspot number from SIDC, Brussels (1818 - 2024)
+SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FALSE)  %>% 
+  transmute(Date = as.Date(paste0(X1, "-", X2, "-", X3)), 
+            Sunspots = as.numeric(X5))
+
 ## Ambulance Data related to acute cerebrovascular accidents
 brain_data <- read_csv("data/raw/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
@@ -428,3 +433,73 @@ Age Group 25-44 Years: In contrast, the younger age group (25-44 years) shows fe
 Age Group 45-54 Years: For the middle age group, there is also a balance between male and female calls, but the numbers are generally higher than those in the 25-44 age group and lower than in the 55+ age group. 
 
 Each age group displays a general increase in ambulance calls over the years leading up to 2020. This upward trend is consistent across all groups, indicating a growing utilization of ambulance services over time.
+## Sunspots
+
+### Solar Cycles
+```{r Cycles, fig.height=12, fig.width=24}
+
+Sunspots_quantile <- SIDC_SILSO %>% 
+             filter(Sunspots != -1, between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
+             pull(Sunspots) %>% quantile()
+  
+SIDC_SILSO %>% 
+  filter(Sunspots != -1, 
+         between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
+  mutate(Sunspots_level = cut(Sunspots, 
+                              breaks = c(-Inf, quantile(Sunspots)[2], quantile(Sunspots)[3], 
+                                         quantile(Sunspots)[4], Inf), labels  = 
+                                c("Low", "Medium", "High", "Extreme"))) %>% 
+  ggplot(aes(Date, Sunspots, group = 1))+
+  geom_line(aes(color = Sunspots_level), linewidth = 2)+
+  geom_hline(yintercept = Sunspots_quantile[2], colour = "black", linewidth = 1, linetype = "dashed")+
+  geom_hline(yintercept = Sunspots_quantile[3], colour = "black", linewidth = 1, linetype = "dashed")+
+  geom_hline(yintercept = Sunspots_quantile[4], colour = "black", linewidth = 1, linetype = "dashed")+
+  scale_colour_manual(values =  c("Low" = "darkorange", "Medium" = "darkorange2",  
+                                  "High" = "darkorange3", "Extreme" = "darkorange4"), 
+                       labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)", 
+                                  "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
+  scale_x_date( date_breaks = "20 year", date_labels = "%Y")+
+  scale_y_continuous(n.breaks = 10)+
+  labs(x = "", y = "Sunspot number", color = "Sunspots level", title = "Solar Cycles (1823 - 2023)")+
+  theme_custom+
+  annotate("text", x = as.Date("1815-01-01"), 
+           y = c( (Sunspots_quantile[1] + Sunspots_quantile[2])/2, (Sunspots_quantile[2] + Sunspots_quantile[3])/2, 
+                  (Sunspots_quantile[3] + Sunspots_quantile[4])/2, (Sunspots_quantile[4] + Sunspots_quantile[5])/3), 
+           label = c("Q1", "Q2", "Q3", "Q4"), size = 10)
+
+```
+
+### EMS ~ Sunspots level
+
+```{r level, fig.height=8, fig.width=16}
+
+brain_data %>% 
+  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
+                                    Sunspots > Sunspots_quantile[3] ~ "High", 
+                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
+                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>% 
+ ggplot(aes(x = EMS,  y = Sunspots_level, fill = Sunspots_level )) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(
+    values = c("Low" = "darkorange", "Medium" = "darkorange2", "High" = "darkorange3","Extreme" = "darkorange4"),
+    labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)",
+               "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
+  labs(x = "Daily Ambulance Calls", y = "",  fill = "Sunspots level",
+       title = "Relationship Between Sunspot Levels and Ambulance Calls")+
+  theme_custom 
+
+
+
+brain_data %>% 
+  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
+                                    Sunspots > Sunspots_quantile[3] ~ "High", 
+                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
+                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>%                             
+  pairwise_t_test(EMS ~ Sunspots_level, p.adjust.method = "holm") %>% 
+  transmute(`Group 1` = group1, `Group 2` = group2, 
+            `p-value` = p, `p.adjusted` = p.adj) %>%
+  flextable() 
+
+  
+```
+
