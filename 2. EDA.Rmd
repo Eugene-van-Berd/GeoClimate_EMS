@@ -48,10 +48,10 @@ SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FAL
             Sunspots = as.numeric(X5))
 
 ## Ambulance Data related to acute cerebrovascular accidents
-brain_data <- read_csv("data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/ems/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
 ## Ambulance Long Data related to acute cerebrovascular accidents
-brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+brain_data_long <- read_csv("data/ems/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
