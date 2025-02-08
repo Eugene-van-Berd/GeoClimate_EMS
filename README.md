@@ -7,7 +7,7 @@ To ensure the environment is reproducible and to install all necessary packages,
 ## 2. **`data` Folder:**
 
 -   [`docs`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/docs): Storage for final documents generated during the R Markdown file rendering process.
--   `ems`: Private storage for sensitive ambulance call data. For access, contact via [**email**](eugenevanberd@gmail.com).
+-   `ems`: Private storage for sensitive ambulance call data. For access, contact via [**email**](mailto:eugenevanberd@gmail.com).
 -   [`help`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/help): Storage for auxiliary information (images, descriptions, hints, etc.).
 -   [`pics`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/pics): Storage for final plots automatically saved during R Markdown file rendering.
 -   [`raw`](https://github.com/Eugene-van-Berd/GeoClimate_EMS/tree/master/data/raw): Storage for external databases.
