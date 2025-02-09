@@ -38,7 +38,7 @@ theme_custom <- theme_bw()+ theme(
 
 ```
 
-## Data import 
+## Data import
 
 ```{r read, message=FALSE}
 
@@ -48,10 +48,10 @@ SIDC_SILSO <- read_delim("data/raw/SIDC_SILSO.csv", delim = ";", col_names = FAL
             Sunspots = as.numeric(X5))
 
 ## Ambulance Data related to acute cerebrovascular accidents
-brain_data <- read_csv("data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/ems/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
 ## Ambulance Long Data related to acute cerebrovascular accidents
-brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+brain_data_long <- read_csv("data/ems/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
@@ -59,6 +59,7 @@ brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
 ## Correlation of quantitative variables
 
 Our dataset contains a large number of quantitative variables:
+
 ```{r ggpairs, fig.height=20, fig.width=30, message=FALSE}
 
 # Data preprocessing
@@ -112,9 +113,11 @@ theme_custom +
 ```
 
 When analyzing the network graph, three groups of features can be identified:
-- Climatic: temperature, pressure, wind, precipitation;
-- Geomagnetic: Dst index, Ap index;
-- Solar: F10.7 index, number of sunspots.
+
+-   **Climatic:** temperature, pressure, wind, precipitation;
+-   **Geomagnetic:** Dst index, Ap index;
+-   **Solar:** F10.7 index, number of sunspots.
+
 ```{r network, fig.width=10, message=FALSE}
 
 cor_data <- brain_data %>% 
@@ -129,10 +132,12 @@ network_plot(cor_data, min_cor = .1)
 
 ```
 
-Additionally, some features within the groups exhibit a high degree of correlation!
-- A negative correlation was expected between the daily average temperature and pressure (r = -0.73).
-- The F10.7 index and the number of sunspots show a high correlation (r = 0.92), as both reflect solar activity but are measured using different methods.
-- The daily average Ap and Dst indices demonstrate a significant correlation (r = -0.70), as both reflect changes in the Earth's geomagnetic field. However, the distribution of data along the trend line remains uneven.
+**Some features within the groups are highly correlated!**
+
+-   A negative correlation was expected between daily average temperature and pressure (r = -0.73).
+-   The F10.7 index and sunspot number show a strong correlation (r = 0.92), both reflecting solar activity in different ways.
+-   The Ap and Dst indices are significantly correlated (r = -0.70), both reflecting geomagnetic field changes, though data distribution is uneven.
+
 ```{r correlation, fig.width=10, message=FALSE}
 
 brain_data %>% 
@@ -162,12 +167,15 @@ brain_data %>%
 
 
 ```
+
 Based on further analysis, the following variables will be excluded:
-- **Pressure**: does not provide full coverage of the data throughout the study period and exhibits less variability compared to Temperature.
-- **F10.7 Index**: has an incomplete data set and exhibits less variability compared to Sunspot count.
-- The **Ap and Dst** geomagnetic activity indices will not be excluded.
+
+-   **Pressure**: does not provide full coverage of the data throughout the study period and exhibits less variability compared to Temperature.
+-   **F10.7 Index**: has an incomplete data set and exhibits less variability compared to Sunspot count.
+-   The **Ap and Dst** geomagnetic activity indices will not be excluded.
 
 However, all the variables considered do not have a noticeable relationship with the number of ambulance calls:
+
 ```{r EMS, fig.height=10, fig.width=15, message=FALSE}
 
   brain_data %>% 
@@ -182,9 +190,10 @@ However, all the variables considered do not have a noticeable relationship with
 
 ```
 
-## Data Decomposition 
+## Data Decomposition
 
 The number of sunspots is directly linked to the solar activity cycles, as confirmed by the graph:
+
 ```{r sunspots, fig.height=8, fig.width=12}
 
 brain_data %>% 
@@ -203,9 +212,10 @@ brain_data %>%
 
 ```
 
-Our data covers the complete 24th solar cycle, spanning the period from December 2008 to December 2019.
+Our data covers the complete **24th solar cycle**, spanning the period from December 2008 to December 2019.
 
 Working with time series allows us to decompose the data to identify trends and cyclic patterns:
+
 ```{r decomposing, fig.height=15, fig.width=25}
 
 ggarrange(
@@ -243,13 +253,17 @@ ggarrange(
 )
 
 ```
-- After decomposing the **emergency calls data**, a linear increase over time is observed. However, since 2020, a noticeable decrease is apparent, likely associated with the COVID-19 pandemic.
-- Climatic data (especially **temperature**), after decomposition, show a clear cyclic pattern.
-- The **daily Dst index** does not show any clear trends or cycles. However, the daily fluctuation **amplitude of the Dst index**, after decomposition, exhibits a trend similar to the dynamics of sunspot numbers. Nevertheless, since noise is the dominant component, the results should not be taken too seriously.
+
+-   After decomposing the **emergency calls data**, a linear increase over time is observed. However, since 2020, a noticeable decrease is apparent, likely associated with the COVID-19 pandemic.
+-   Climatic data (especially **temperature**), after decomposition, show a clear cyclic pattern.
+-   The **daily Dst index** does not show any clear trends or cycles. However, the daily fluctuation **amplitude of the Dst index**, after decomposition, exhibits a trend similar to the dynamics of sunspot numbers. Nevertheless, since noise is the dominant component, the results should not be taken too seriously.
 
 ## Visualizing Association
 
-### Trends: EMS & Sunspots 
+### Trends: EMS & Sunspots
+
+Solar activity shows cycles, while EMS follows a linear trend, as seen in the decomposition. However, there’s no significant difference when looking at the data by month over this period:
+
 ```{r geom_tile, fig.height=9, fig.width=18}
 
 ggarrange(
@@ -278,7 +292,83 @@ brain_data %>%
 
 ```
 
-### Dst ~ Sunspots
+### Solar Cycles
+
+When examining solar cycles over the past 200 years, sunspots can be represented as a factor variable - **Sunspots level**:
+
+```{r Cycles, fig.height=12, fig.width=24}
+
+Sunspots_quantile <- SIDC_SILSO %>% 
+             filter(Sunspots != -1, between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
+             pull(Sunspots) %>% quantile()
+  
+SIDC_SILSO %>% 
+  filter(Sunspots != -1, 
+         between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
+  mutate(Sunspots_level = cut(Sunspots, 
+                              breaks = c(-Inf, quantile(Sunspots)[2], quantile(Sunspots)[3], 
+                                         quantile(Sunspots)[4], Inf), labels  = 
+                                c("Low", "Medium", "High", "Extreme"))) %>% 
+  ggplot(aes(Date, Sunspots, group = 1))+
+  geom_line(aes(color = Sunspots_level), linewidth = 2)+
+  geom_hline(yintercept = Sunspots_quantile[2], colour = "black", linewidth = 1, linetype = "dashed")+
+  geom_hline(yintercept = Sunspots_quantile[3], colour = "black", linewidth = 1, linetype = "dashed")+
+  geom_hline(yintercept = Sunspots_quantile[4], colour = "black", linewidth = 1, linetype = "dashed")+
+  scale_colour_manual(values =  c("Low" = "darkorange", "Medium" = "darkorange2",  
+                                  "High" = "darkorange3", "Extreme" = "darkorange4"), 
+                       labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)", 
+                                  "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
+  scale_x_date( date_breaks = "20 year", date_labels = "%Y")+
+  scale_y_continuous(n.breaks = 10)+
+  labs(x = "", y = "Sunspot number", color = "Sunspots level", title = "Solar Cycles (1823 - 2023)")+
+  theme_custom+
+  annotate("text", x = as.Date("1815-01-01"), 
+           y = c( (Sunspots_quantile[1] + Sunspots_quantile[2])/2, (Sunspots_quantile[2] + Sunspots_quantile[3])/2, 
+                  (Sunspots_quantile[3] + Sunspots_quantile[4])/2, (Sunspots_quantile[4] + Sunspots_quantile[5])/3), 
+           label = c("Q1", "Q2", "Q3", "Q4"), size = 10)
+
+```
+
+### EMS \~ Sunspots level
+
+No difference in the number of emergency calls on days with different Sunspots_level is observed:
+
+```{r level, fig.height=8, fig.width=16}
+
+brain_data %>% 
+  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
+                                    Sunspots > Sunspots_quantile[3] ~ "High", 
+                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
+                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>% 
+ ggplot(aes(x = EMS,  y = Sunspots_level, fill = Sunspots_level )) +
+  geom_boxplot(alpha = 0.7) +
+  scale_fill_manual(
+    values = c("Low" = "darkorange", "Medium" = "darkorange2", "High" = "darkorange3","Extreme" = "darkorange4"),
+    labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)",
+               "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
+  labs(x = "Daily Ambulance Calls", y = "",  fill = "Sunspots level",
+       title = "Relationship Between Sunspot Levels and Ambulance Calls")+
+  theme_custom 
+
+
+
+brain_data %>% 
+  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
+                                    Sunspots > Sunspots_quantile[3] ~ "High", 
+                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
+                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>%                             
+  pairwise_t_test(EMS ~ Sunspots_level, p.adjust.method = "holm") %>% 
+  transmute(`Group 1` = group1, `Group 2` = group2, 
+            `p-value` = p, `p.adjusted` = p.adj) %>%
+  flextable() 
+
+  
+```
+
+### Dst \~ Sunspots
+
+At the same time, a noticeable difference in the Dst index is observed as the sunspot number changes:
+
 ```{r Dst_level, fig.height=8, fig.width=16}
 
 brain_data %>%
@@ -292,7 +382,11 @@ brain_data %>%
 
 ```
 
-### DayOff ~ EMS
+### EMS \~ DayOff
+
+-   The difference between the average EMS values for weekdays and weekends is statistically significant.
+-   The average EMS value is higher on weekdays (13.33) compared to weekends (11.02).
+
 ```{r DayOff, fig.height=8, fig.width=16}
 
 mean_values <- brain_data %>%
@@ -322,10 +416,11 @@ ggplot(aes(x = DayOff, y = EMS)) +
                      y.position = max(brain_data$EMS) + 0.1)
 
 ```
-- The difference between the average EMS values for weekdays and weekends is statistically significant.
-- The average EMS value is higher on weekdays (13.33) compared to weekends (11.02).
 
-### Season ~ EMS
+### EMS \~ Season  
+
+The distribution of EMS calls across seasons is not statistically significant (**paired t-test with Holm adjustment**) p.adjusted \> 0.05).
+
 ```{r Season, fig.height=8, fig.width=16}
 
 brain_data %>% 
@@ -344,40 +439,14 @@ brain_data %>%
   flextable() 
 
 ```
-The distribution of emergency medical service calls across seasons is statistically insignificant 
-(**paired t-test with Holm p-value adjustment method: p.adjusted > 0.05**).
 
-### Geomagnetic indices
-```{r K_IRT, fig.width=10, message=FALSE}
+### EMS \~ Age & Sex 
 
-brain_data %>% 
-  drop_na(Kp_Sum, K_Sum) %>% 
-  ggplot(aes(Kp_Sum, K_Sum))+
-  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
-  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
-  stat_cor(method = "pearson", label.x.npc = 0, label.y.npc = 0.9, size = 7)+
-  labs(x = "Daily Average Kp index", y = "Daily Average K index (IRT)")+
-  theme_custom
+-   All age groups show an **increase in calls over time**, peaking around 2020.
+-   **Age 25-44:** Fewer calls, with a balanced male-female distribution.
+-   **Age 45-54:** More calls than 25-44, but fewer than 55+; balanced gender distribution.
+-   **Age 55+:** Highest number of calls, with females surpassing males, especially in recent years.
 
-brain_data %>%
-  drop_na(Kp_Sum, K_Sum) %>% 
-  pivot_longer(cols = c(Kp_Sum, K_Sum), names_to = "index") %>% 
-  ggplot() +
-  geom_histogram(aes(x = value, fill = index), 
-                 binwidth = 5, colour = "black", alpha = 0.5, position = "identity", show.legend = FALSE) +
-  scale_fill_manual(
-    values = c("K_Sum" = "darkseagreen2", "Kp_Sum" = "steelblue2") )+
-  scale_x_continuous(breaks = seq(0, 50, 10))+
-  labs( x = "Index Values", y = "Observation Count", fill = "Index Type") +
-  theme_custom +
-  facet_wrap(~index, labeller = labeller(index = c("K_Sum" = "Daily Average K index (IRT)",
-                                                   "Kp_Sum" = "Daily Average Kp index")))
-
-```
-Daily Average Kp index and Daily Average K index (IRT) show a strong correlation **(r = 0.91)**.
-However, K index (IRT) has a smaller range and a more uniform distribution compared to Kp index.
-
-### Age & Sex ~ EMS
 ```{r Age_Sex, fig.height=15, fig.width=20}
 
 ggarrange(
@@ -425,81 +494,34 @@ nrow = 2
 )
 ```
 
-Observations:
-Age Group 55+ Years: This age group consistently has the highest number of ambulance calls across the years for both genders. The number of calls for females in this group notably exceeds those for males, particularly in more recent years.
+### Local K index
 
-Age Group 25-44 Years: In contrast, the younger age group (25-44 years) shows fewer ambulance calls, with a more balanced distribution between males and females. 
+Daily Average Kp index and Daily Average K index (IRT) show a strong correlation **(r = 0.91)**. However, K index (IRT) has a smaller range and a more uniform distribution compared to Kp index.
 
-Age Group 45-54 Years: For the middle age group, there is also a balance between male and female calls, but the numbers are generally higher than those in the 25-44 age group and lower than in the 55+ age group. 
-
-Each age group displays a general increase in ambulance calls over the years leading up to 2020. This upward trend is consistent across all groups, indicating a growing utilization of ambulance services over time.
-## Sunspots
-
-### Solar Cycles
-```{r Cycles, fig.height=12, fig.width=24}
-
-Sunspots_quantile <- SIDC_SILSO %>% 
-             filter(Sunspots != -1, between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
-             pull(Sunspots) %>% quantile()
-  
-SIDC_SILSO %>% 
-  filter(Sunspots != -1, 
-         between(Date, as.Date("1823-01-01"), as.Date("2020-01-01"))) %>% 
-  mutate(Sunspots_level = cut(Sunspots, 
-                              breaks = c(-Inf, quantile(Sunspots)[2], quantile(Sunspots)[3], 
-                                         quantile(Sunspots)[4], Inf), labels  = 
-                                c("Low", "Medium", "High", "Extreme"))) %>% 
-  ggplot(aes(Date, Sunspots, group = 1))+
-  geom_line(aes(color = Sunspots_level), linewidth = 2)+
-  geom_hline(yintercept = Sunspots_quantile[2], colour = "black", linewidth = 1, linetype = "dashed")+
-  geom_hline(yintercept = Sunspots_quantile[3], colour = "black", linewidth = 1, linetype = "dashed")+
-  geom_hline(yintercept = Sunspots_quantile[4], colour = "black", linewidth = 1, linetype = "dashed")+
-  scale_colour_manual(values =  c("Low" = "darkorange", "Medium" = "darkorange2",  
-                                  "High" = "darkorange3", "Extreme" = "darkorange4"), 
-                       labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)", 
-                                  "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
-  scale_x_date( date_breaks = "20 year", date_labels = "%Y")+
-  scale_y_continuous(n.breaks = 10)+
-  labs(x = "", y = "Sunspot number", color = "Sunspots level", title = "Solar Cycles (1823 - 2023)")+
-  theme_custom+
-  annotate("text", x = as.Date("1815-01-01"), 
-           y = c( (Sunspots_quantile[1] + Sunspots_quantile[2])/2, (Sunspots_quantile[2] + Sunspots_quantile[3])/2, 
-                  (Sunspots_quantile[3] + Sunspots_quantile[4])/2, (Sunspots_quantile[4] + Sunspots_quantile[5])/3), 
-           label = c("Q1", "Q2", "Q3", "Q4"), size = 10)
-
-```
-
-### EMS ~ Sunspots level
-
-```{r level, fig.height=8, fig.width=16}
+```{r K_IRT, fig.width=10, message=FALSE}
 
 brain_data %>% 
-  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
-                                    Sunspots > Sunspots_quantile[3] ~ "High", 
-                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
-                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>% 
- ggplot(aes(x = EMS,  y = Sunspots_level, fill = Sunspots_level )) +
-  geom_boxplot(alpha = 0.7) +
+  drop_na(Kp_Sum, K_Sum) %>% 
+  ggplot(aes(Kp_Sum, K_Sum))+
+  geom_jitter(alpha = 0.5, colour = "royalblue2", size = 1.5)+
+  geom_smooth(method = "lm", se = FALSE, colour = "orangered2", linewidth = 1.2) +
+  stat_cor(method = "pearson", label.x.npc = 0, label.y.npc = 0.9, size = 7)+
+  labs(x = "Daily Average Kp index", y = "Daily Average K index (IRT)")+
+  theme_custom
+
+brain_data %>%
+  drop_na(Kp_Sum, K_Sum) %>% 
+  pivot_longer(cols = c(Kp_Sum, K_Sum), names_to = "index") %>% 
+  ggplot() +
+  geom_histogram(aes(x = value, fill = index), 
+                 binwidth = 5, colour = "black", alpha = 0.5, position = "identity", show.legend = FALSE) +
   scale_fill_manual(
-    values = c("Low" = "darkorange", "Medium" = "darkorange2", "High" = "darkorange3","Extreme" = "darkorange4"),
-    labels = c("Low" = "Low (0-22)", "Medium" = "Medium (23-65)",
-               "High" = "High (66-129)","Extreme" = "Extreme (>129)")) +
-  labs(x = "Daily Ambulance Calls", y = "",  fill = "Sunspots level",
-       title = "Relationship Between Sunspot Levels and Ambulance Calls")+
-  theme_custom 
+    values = c("K_Sum" = "darkseagreen2", "Kp_Sum" = "steelblue2") )+
+  scale_x_continuous(breaks = seq(0, 50, 10))+
+  labs( x = "Index Values", y = "Observation Count", fill = "Index Type") +
+  theme_custom +
+  facet_wrap(~index, labeller = labeller(index = c("K_Sum" = "Daily Average K index (IRT)",
+                                                   "Kp_Sum" = "Daily Average Kp index")))
 
-
-
-brain_data %>% 
-  mutate(Sunspots_level = case_when(Sunspots > Sunspots_quantile[4] ~ "Extreme", 
-                                    Sunspots > Sunspots_quantile[3] ~ "High", 
-                                    Sunspots > Sunspots_quantile[2] ~ "Medium", 
-                                    TRUE ~ "Low") %>% factor(fct_recode(c("Low", "Medium", "High", "Extreme")))) %>%                             
-  pairwise_t_test(EMS ~ Sunspots_level, p.adjust.method = "holm") %>% 
-  transmute(`Group 1` = group1, `Group 2` = group2, 
-            `p-value` = p, `p.adjusted` = p.adj) %>%
-  flextable() 
-
-  
 ```
 

@@ -19,6 +19,7 @@ library(conflicted)
 library(flextable)
 library(ggfortify)
 library(ggpubr)
+library(gt)
 library(MASS)
 library(tidyverse)
 
@@ -40,15 +41,15 @@ theme_custom <- theme_bw()+ theme(
 
 ```
 
-## Data import 
+## Data import
 
 ```{r read, message=FALSE}
 
 ## Ambulance Data related to acute cerebrovascular accidents
-brain_data <- read_csv("data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/ems/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
 ## Ambulance Long Data related to acute cerebrovascular accidents
-brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+brain_data_long <- read_csv("data/ems/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
@@ -56,6 +57,7 @@ brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
 ## Basic model
 
 The distribution of ambulance calls follows a Poisson distribution, as observed in the graph:
+
 ```{r distribution, fig.height=8, fig.width=16}
 
 brain_data %>%
@@ -70,7 +72,8 @@ brain_data %>%
 
 ```
 
-The baseline Poisson regression model included the date, average daily temperature, number of sunspots, and the total Kp index for the day. All coefficients are significant, p < 0.05.
+The baseline Poisson regression model included the date, average daily temperature, number of sunspots, and the total Kp index for the day. All coefficients are significant, p \< 0.05.
+
 ```{r model}
 
 poisson_m0 <- glm(EMS ~ Date + Temp_mean + Sunspots + Kp_Sum,  
@@ -83,12 +86,14 @@ poisson_m0 %>% summary()
 ## Basic model diagnostic
 
 The diagnostic plots and component-plus-residual plots do not reveal any major violations in the model, confirming its adequacy.
+
 ```{r plus, fig.height=10, fig.width=20}
 autoplot(poisson_m0)+theme_custom
 crPlots(poisson_m0)
 ```
 
 However, overdispersion **(1.54)** and autocorrelation of residuals are present, which may indicate the need for model refinement.
+
 ```{r minus}
 
 # Overdispersion 
@@ -102,6 +107,7 @@ residuals(poisson_m0, type = "response") %>% acf()
 ## Alternative models
 
 As an alternative, we considered negative binomial regression and the use of robust standard errors for the Poisson regression.
+
 ```{r alter, fig.width=14}
 
 # Poisson regression
@@ -151,7 +157,8 @@ tidy(NBR_model, conf.level = 0.95, conf.int = TRUE) %>%
 
 ```
 
-The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression significantly increases the confidence interval for the estimates. Therefore, we decided to focus on reducing overdispersion and autocorrelation in the Poisson model.
+The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression significantly increases the confidence interval for the estimates. This further highlights the need to improve the Poisson model to address overdispersion and autocorrelation.
+
 ```{r compare, fig.height=5, fig.width=15}
 
 bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_data) %>% 
@@ -175,6 +182,7 @@ bind_rows(Poisson_data, Poisson_vcovHC_data, Poisson_vcovHAC_data, Neg_binomial_
 ## Week lag
 
 According to the ACF, spikes occur with a 7-day periodicity. We plan to address this by adding the **day of the week**! The ANOVA shows that including the new term significantly improves the model's explanatory power. The lags have been aligned, but their overall reduction still requires further adjustment.
+
 ```{r lag7, fig.height=8, fig.width=16}
 
 brain_data_transform <- brain_data %>% 
@@ -198,7 +206,6 @@ residuals(poisson_m1, type = "response") %>% acf() %>% autoplot() +
 
 ## Age & Gender
 
-Let's include gender and age in the model, using the long format data (1 day - 6 rows).
 ```{r long}
 
 brain_data_long_transform <- brain_data_long %>% 
@@ -211,8 +218,8 @@ poisson_m2 <- glm(EMS ~ Date + Day_Week + Temp_mean + Sunspots + Kp_Sum + Age + 
 
 ```
 
-The inclusion of new variables reduced the overdispersion **from 1.54 to 1.20**. 
-The ACF with the addition of age and gender drops sharply, but spikes remain at every 6th row!
+The inclusion of new variables **(gender and age)** in the model, using the long format data **(1 day = 6 rows)**, reduced overdispersion from 1.54 to 1.20. The ACF drops sharply, but spikes persist at every 6th row!
+
 ```{r poisson_m2, fig.height=8, fig.width=16}
 # Overdispersion 
 dispersiontest(poisson_m0) 
@@ -230,7 +237,8 @@ residuals(poisson_m2, type = "response") %>% acf() %>% autoplot() +
 
 ```
 
-We replaced Age and Sex with their interaction Age*Sex. The ANOVA once again indicates an improvement in the model! Additionally, the lags have become more evenly distributed.
+Replacing **(Age + Sex)** with their interaction **(Age \* Sex)** shows an improvement in the model, as indicated by the ANOVA. Additionally, the lags are now more evenly distributed.
+
 ```{r Age_Sex, fig.height=10, fig.width=25}
 
 poisson_m3 <- glm(EMS ~ Date + Day_Week + Age*Sex + Temp_mean + Sunspots + Kp_Sum,
@@ -253,7 +261,8 @@ residuals(poisson_m3, type = "response") %>% acf() %>% autoplot() +
 
 ## Calendar effect
 
-We added variables for DayOff and COVID. The ANOVA confirms that these changes are meaningful for the model!
+Adding variables for **DayOff** and **COVID** shows meaningful improvements in the model, as confirmed by the ANOVA.
+
 ```{r Calendar}
 
 # workdays vs weekend
@@ -274,7 +283,8 @@ anova(poisson_m4, poisson_m5, test = "LR")
 
 ## Cyclic component
 
-We will create an additional variable that accounts for the cyclic nature of the data and synchronize it with the temperature.
+The additional variable accounts for the cyclic nature of the data and synchronizes it with the temperature.
+
 ```{r sin, fig.height=8, fig.width=16}
 
 brain_data_long_transform <- brain_data_long_transform %>% 
@@ -318,7 +328,8 @@ tibble(Shift = shifts, RMSE = RMSE_values) %>%
     
 ```
 
-Adding the Cycle Component, according to the ANOVA analysis, improves the model.
+Adding the Cyclic Component, according to the ANOVA analysis, improves the model.
+
 ```{r cycle}
 
 poisson_m6 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
@@ -332,6 +343,7 @@ anova(poisson_m5, poisson_m6, test = "LR")
 ## Geomagnetic parameters
 
 Replacing the daily Kp index with the **local K index** for Irkutsk reduces the AIC, confirming the choice of the local index. ANOVA also showed that adding the **Dst index** as the daily amplitude of values improves the model, while adding the presence of **Sudden Impulses** had no significant impact.
+
 ```{r Geomagnetic, warning=FALSE}
 
 # K index (IRT)
@@ -363,7 +375,9 @@ anova(poisson_m9, poisson_m11, test = "LR")
 ```
 
 ## Sunspots
+
 Solar activity was additionally assessed by the absolute difference between Sunspots and the average Sunspots value over the 24th solar cycle. No significant difference was found between this model and the model with Sunspots.
+
 ```{r Sunspots}
 
 brain_data %>% 
@@ -384,6 +398,7 @@ AIC(poisson_m9, poisson_m12)
 ## Climatic
 
 When additional climate data were included, ANOVA indicated that the variable **Wind** is significant for the model, while precipitation did not show a significant effect.
+
 ```{r Climatic}
 
 poisson_m13 <- glm(EMS ~ Date + Day_Week + DayOff + COVID + Sin_year + 
@@ -402,8 +417,9 @@ poisson_m14 %>% summary()
 ```
 
 ## Interactions
-Model interaction checks revealed, in addition to **Age-Sex**, significant effects for the following pairs: 
-**Age-DayOff, Age-COVID, Age-Temperature, Sex-COVID, Sex-Temperature**.
+
+Model interaction checks revealed, in addition to **Age-Sex**, significant effects for the following pairs: **Age-DayOff, Age-COVID, Age-Temperature, Sex-COVID, Sex-Temperature**.
+
 ```{r Interactions}
 
 # Age Interactions
@@ -442,8 +458,10 @@ drop1(poisson_final, test = "LR")
 
 ```
 
-## Final Check
+## Additional Interaction
+
 When testing the interaction of age and gender with geomagnetic variables **(K and Dst indices)** and the **number of sunspots**, no significant effects were found. The final model remains unchanged.
+
 ```{r Check}
 
 poisson_m18 <- glm(EMS ~ Date + Day_Week + Sin_year + 
@@ -491,6 +509,9 @@ anova(poisson_final, poisson_m23 , test = "LR")
 ```
 
 ## Final Model
+
+Diagnostic plots confirm the correctness of the final model.
+
 ```{r Final1, fig.height=10, fig.width=25}
 
 # Summary
@@ -501,6 +522,8 @@ poisson_final %>% autoplot() + theme_custom
 
 
 ```
+
+Overdispersion decreases from 1.54 to 1.14, and autocorrelation also decreases
 
 ```{r Final2, fig.height=10, fig.width=25}
 # Overdispersion 
@@ -522,7 +545,9 @@ nrow = 1
 ```
 
 ## Impact of Model Choice
+
 Let's return to the negative binomial regression and the use of robust standard errors for the Poisson regression on the final set of variables.
+
 ```{r alter2, fig.width=14}
 
 # Poisson regression
@@ -560,6 +585,7 @@ tidy(NBR_final, conf.level = 0.95, conf.int = TRUE) %>%
 ```
 
 The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression in the final model, compared to the baseline, has virtually no effect on the confidence intervals for the estimates, meaning that the use of Poisson regression was justified!
+
 ```{r compare2, fig.height=15, fig.width=15}
 
 bind_rows(Poisson_data_final, Poisson_vcovHC_data_final, 
@@ -580,26 +606,57 @@ bind_rows(Poisson_data_final, Poisson_vcovHC_data_final,
 ```
 
 ## EMS effect
+
 ```{r effect}
-
 final_table <- tidy(poisson_final, conf.level = 0.95, conf.int = TRUE)
+```
 
-final_table %>%   
-  filter(p.value < 0.05) %>% 
-   transmute(
-      Term = term, 
-      `EMS effect` = ifelse(term != "(Intercept)", 
-                            paste0(round((exp(estimate) - 1) * 100, 3), "%"), 
-                            round((exp(estimate)), 3)), 
-      `EMS effect (Lower CI)` = ifelse(term != "(Intercept)", 
-                            paste0(round((exp(conf.low) - 1) * 100, 3), "%"), 
-                            round((exp(conf.low)), 3)), 
-      `EMS effect (Upper CI)` = ifelse(term != "(Intercept)", 
-                            paste0(round((exp(conf.high) - 1) * 100, 3), "%"), 
-                            round((exp(conf.high)), 3))
-      ) %>% 
-  flextable() %>% 
-  width(width = 1) 
+The table below presents the factors significantly associated with ambulance calls, derived from the final model.
+
+```{r effect_table}
+
+final_head <- final_table %>%  
+  filter(p.value < 0.05, term != "(Intercept)") %>% 
+  transmute(
+      Term = term, estimate = (exp(estimate) - 1) * 100, 
+      conf.low = (exp(conf.low) - 1) * 100, conf.high = (exp(conf.high) - 1) * 100) %>% 
+  head(12) %>% 
+  gt() %>%
+  fmt_number(columns = 2:4, decimals = 2) %>%  
+  tab_header(
+    title = md("**Factors Associated with Ambulance Calls**"),
+    subtitle = md("*Only significant associations (p < 0.05)*") ) %>%
+  cols_label(
+    Term = md("**Variable**"), estimate = md("*Estimate*"),
+    conf.low = md("*Lower CI*"), conf.high = md("*Upper CI*") ) %>% 
+  tab_spanner(
+    label = md("**Association, %**"),
+    columns = c(estimate, conf.low, conf.high) ) %>%
+  tab_options( row.striping.include_table_body = TRUE )
+
+
+final_tail <- final_table %>%  
+  filter(p.value < 0.05, term != "(Intercept)") %>% 
+  transmute(
+      Term = term, estimate = (exp(estimate) - 1) * 100, 
+      conf.low = (exp(conf.low) - 1) * 100, conf.high = (exp(conf.high) - 1) * 100) %>% 
+  tail(12) %>% 
+  gt() %>%
+  fmt_number(columns = 2:4, decimals = 2) %>%  
+  tab_header(
+    title = md("**Factors Associated with Ambulance Calls**"),
+    subtitle = md("*Only significant associations (p < 0.05)*") ) %>%
+  cols_label(
+    Term = md("**Variable**"), estimate = md("*Estimate*"),
+    conf.low = md("*Lower CI*"), conf.high = md("*Upper CI*") ) %>% 
+  tab_spanner(
+    label = md("**Association, %**"),
+    columns = c(estimate, conf.low, conf.high) ) %>%
+  tab_options( row.striping.include_table_body = TRUE )
+
+
+gt_group(final_head, final_tail)
 
 
 ```
+

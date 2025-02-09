@@ -31,8 +31,8 @@ Sys.setlocale("LC_TIME", "C") %>% invisible()
 ```{r read, message=FALSE, warning=FALSE}
 
 # Ambulance Data in Irkutsk (2006 - 2022)
-brain_data_raw <- read_excel("data/raw/database_2024-11-09.xlsx") ## Acute cerebrovascular accident
-heart_data_raw <- read_excel("data/raw/database_2025-01-18.xlsx") ## Heart diseases
+brain_data_raw <- read_excel("data/ems/database_2024-11-09.xlsx") ## Acute cerebrovascular accident
+heart_data_raw <- read_excel("data/ems/database_2025-01-18.xlsx") ## Heart diseases
 
 # Geomagnetic activity indices (Ap and Kp) from GFZ, Potsdam (2006 - 2022)
 GFZ_Potsdam_Ap <- read_csv("data/raw/GFZ_Potsdam_Ap.csv")  
@@ -284,28 +284,28 @@ skim(brain_data_long)
 ```{r write, message=FALSE}
 
 #Local data storage 
-write_csv(brain_data, "data/raw/brain_data.csv") 
-write_csv(heart_data, "data/raw/heart_data.csv") 
-write_csv(brain_data_long, "data/raw/brain_data_long.csv") 
-write_csv(UA_data_long, "data/raw/UA_data_long.csv") 
-write_csv(AMI_data_long, "data/raw/AMI_data_long.csv") 
+write_csv(brain_data, "data/ems/brain_data.csv") 
+write_csv(heart_data, "data/ems/heart_data.csv") 
+write_csv(brain_data_long, "data/ems/brain_data_long.csv") 
+write_csv(UA_data_long, "data/ems/UA_data_long.csv") 
+write_csv(AMI_data_long, "data/ems/AMI_data_long.csv") 
 
 #Import data
 ## Ambulance Data related to acute cerebrovascular accidents
-brain_data <- read_csv("data/raw/brain_data.csv") %>%
+brain_data <- read_csv("data/ems/brain_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
 ## Ambulance Long Data related to acute cerebrovascular accidents
-brain_data_long <- read_csv("data/raw/brain_data_long.csv") %>%
+brain_data_long <- read_csv("data/ems/brain_data_long.csv") %>%
     mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ## Ambulance Data related to cardiovascular diseases
-heart_data <- read_csv("data/raw/heart_data.csv") %>%
+heart_data <- read_csv("data/ems/heart_data.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level), as.factor))
 ## Ambulance Long Data  related to unstable angina
-UA_data_long <- read_csv("data/raw/UA_data_long.csv") %>%
+UA_data_long <- read_csv("data/ems/UA_data_long.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 ## Ambulance Long Data related to acute myocardial infarction
-AMI_data_long <- read_csv("data/raw/AMI_data_long.csv") %>%
+AMI_data_long <- read_csv("data/ems/AMI_data_long.csv") %>%
    mutate(across(c(Year, Season, Month, DayOff, COVID, Sudden_Start, Dst_level, Sex, Age), as.factor))
 
 ```
