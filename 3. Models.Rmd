@@ -548,7 +548,7 @@ nrow = 1
 
 Let's return to the negative binomial regression and the use of robust standard errors for the Poisson regression on the final set of variables.
 
-```{r alter2, fig.width=14}
+```{r alter2, eval=FALSE, fig.width=14, include=FALSE}
 
 # Poisson regression
 tidy(poisson_final, conf.level = 0.95, conf.int = TRUE) %>%
@@ -586,7 +586,7 @@ tidy(NBR_final, conf.level = 0.95, conf.int = TRUE) %>%
 
 The use of robust standard errors (vcovHC/vcovHAC) and negative binomial regression in the final model, compared to the baseline, has virtually no effect on the confidence intervals for the estimates, meaning that the use of Poisson regression was justified!
 
-```{r compare2, fig.height=15, fig.width=15}
+```{r compare2, eval=FALSE, fig.height=15, fig.width=15, include=FALSE}
 
 bind_rows(Poisson_data_final, Poisson_vcovHC_data_final, 
           Poisson_vcovHAC_data_final, Neg_binomial_data_final) %>% 
@@ -658,5 +658,101 @@ final_tail <- final_table %>%
 gt_group(final_head, final_tail)
 
 
+```
+
+
+## Temperature fluctuations
+
+New variables added to the dataset:
+- Temp_var – daily temperature range.
+- Temp_diff – temperature difference between days.
+```{r temp_fluc}
+
+brain_data_long_transform <- brain_data_long_transform %>% 
+  mutate(Temp_var = Temp_max - Temp_min, 
+         Temp_diff = (Temp_mean - lag(Temp_mean, n = 6, default = first(Temp_mean))) %>% abs(), 
+         .after = COVID) 
+
+```
+
+ANOVA results indicate that the daily temperature range has a significant impact on the model, while wind is no longer a significant factor:
+```{r temp_var}
+
+# Temperature between days (-)
+poisson_m24 <-  glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Dst_var + Temp_diff,
+                     data = brain_data_long_transform, family = poisson)
+
+anova(poisson_final, poisson_m24 , test = "LR") 
+drop1(poisson_m24, test = "LR")
+
+
+# Temperature during the day (+), Interactions (-)
+poisson_m25 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Dst_var + Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+
+anova(poisson_final, poisson_m25 , test = "LR") 
+drop1(poisson_m25, test = "LR") # +Temp_var, - Wind       
+
+poisson_m26 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                       Wind + Sunspots + K_Sum + Dst_var + 
+                       Age*Temp_var + Sex*Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+
+anova(poisson_m25, poisson_m26 , test = "LR") # (-)
+
+```
+
+## Ap index
+
+The addition of the Ap index is significant according to ANOVA, but Dst_var loses its influence.
+```{r Ap}
+
+poisson_temp <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                      Sunspots + K_Sum + Dst_var + Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+drop1(poisson_temp, test = "LR")
+
+# - K_Sum + Ap_mean
+poisson_m27 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                      Sunspots + Ap_mean + Dst_var + Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+
+AIC(poisson_temp, poisson_m27)
+
+
+# + Ap_mean
+poisson_m28 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                      Sunspots + K_Sum + Ap_mean + Dst_var + Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+
+anova(poisson_temp, poisson_m28 , test = "LR") 
+drop1(poisson_m28, test = "LR")
+
+```
+
+Adding Ap_mean and Temp_var while removing Wind and Dst_var slightly improved the model.
+```{r 20250223}
+# -(Wind, Dst_var) + (Ap_mean + Temp_var)
+poisson_20250223 <- glm(EMS ~ Date + Day_Week + Sin_year + 
+                       Age*DayOff + Age*COVID + Age*Temp_mean + 
+                       Age*Sex + Sex*COVID + Sex*Temp_mean + 
+                      Sunspots + K_Sum + Ap_mean + Temp_var,
+                     data = brain_data_long_transform, family = poisson)
+anova(poisson_final,  poisson_20250223)
+drop1(poisson_20250223, test = "LR")
 ```
 
